@@ -10,10 +10,12 @@ const ChatPanel = ({
   handleKeyPress,
   sendMessage,
   toggleRecording,
-  formatTime
+  formatTime,
+  disabled = false, 
+  phase = "running"
 }) => {
   const messagesEndRef = useRef(null);
-
+  const canSend = !disabled && inputMessage.trim();
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -60,7 +62,19 @@ const ChatPanel = ({
           </div>
         </div>
       </div>
-
+      {(phase === "saving" || phase === "evaluating") && (
+    <div style={{
+    margin: '16px 24px 0',
+    padding: '10px 12px',
+    borderRadius: '12px',
+    background: '#fff7ed',
+    border: '1px solid #fed7aa',
+    color: '#9a3412',
+    fontSize: '13px'
+    }}>
+    Generating your interview summary… Please wait.
+    </div>
+)}
       {/* Messages */}
       <div style={{ 
         flex: 1,
@@ -187,72 +201,85 @@ const ChatPanel = ({
           alignItems: 'flex-end'
         }}>
           <button
-            onClick={toggleRecording}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '50%',
-              border: 'none',
-              background: isRecording ? '#ef4444' : '#f3f4f6',
-              color: isRecording ? 'white' : '#6b7280',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.2s',
-              flexShrink: 0
-            }}
-          >
-            {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
-          </button>
+        onClick={() => { if (!disabled) toggleRecording(); }}
+        disabled={disabled}
+        style={{
+          width: '44px',
+          height: '44px',
+          borderRadius: '50%',
+          border: 'none',
+          background: disabled
+            ? '#e5e7eb'
+            : (isRecording ? '#ef4444' : '#f3f4f6'),
+          color: disabled
+            ? '#9ca3af'
+            : (isRecording ? 'white' : '#6b7280'),
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.6 : 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'all 0.2s',
+          flexShrink: 0
+        }}
+      >
+        {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+      </button>
           <div style={{
             flex: 1,
             position: 'relative'
           }}>
             <textarea
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your message..."
-              style={{
-                width: '100%',
-                minHeight: '44px',
-                maxHeight: '120px',
-                padding: '12px 16px',
-                border: '1px solid #e5e7eb',
-                borderRadius: '22px',
-                fontSize: '14px',
-                resize: 'none',
-                fontFamily: 'inherit',
-                lineHeight: '1.5',
-                outline: 'none',
-                transition: 'border-color 0.2s'
-              }}
-            />
+  value={inputMessage}
+  onChange={(e) => { if (!disabled) setInputMessage(e.target.value); }}
+  onKeyPress={(e) => { if (!disabled) handleKeyPress(e); }}
+  disabled={disabled}
+  placeholder={disabled ? "Interview finished. Generating summary..." : "Type your message..."}
+  style={{
+    width: '100%',
+    minHeight: '44px',
+    maxHeight: '120px',
+    padding: '12px 16px',
+    border: '1px solid #e5e7eb',
+    borderRadius: '22px',
+    fontSize: '14px',
+    resize: 'none',
+    fontFamily: 'inherit',
+    lineHeight: '1.5',
+    outline: 'none',
+    transition: 'border-color 0.2s',
+    background: disabled ? '#f9fafb' : 'white',
+    color: disabled ? '#9ca3af' : '#111827',
+    cursor: disabled ? 'not-allowed' : 'text',
+    opacity: disabled ? 0.85 : 1,
+  }}
+/>
+
           </div>
           <button
-            onClick={() => sendMessage()}
-            disabled={!inputMessage.trim()}
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '50%',
-              border: 'none',
-              background: inputMessage.trim() 
-                ? 'linear-gradient(135deg, #3b82f6, #8b5cf6)'
-                : '#f3f4f6',
-              color: 'white',
-              cursor: inputMessage.trim() ? 'pointer' : 'not-allowed',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.2s',
-              flexShrink: 0,
-              boxShadow: inputMessage.trim() ? '0 4px 12px rgba(59, 130, 246, 0.4)' : 'none'
-            }}
-          >
-            <Send size={20} />
-          </button>
+  onClick={() => { if (canSend) sendMessage(); }}
+  disabled={!canSend}
+  style={{
+    width: '44px',
+    height: '44px',
+    borderRadius: '50%',
+    border: 'none',
+    background: canSend
+      ? 'linear-gradient(135deg, #3b82f6, #8b5cf6)'
+      : '#e5e7eb',
+    color: canSend ? 'white' : '#9ca3af',
+    cursor: canSend ? 'pointer' : 'not-allowed',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s',
+    flexShrink: 0,
+    boxShadow: canSend ? '0 4px 12px rgba(59, 130, 246, 0.4)' : 'none',
+    opacity: disabled ? 0.7 : 1,
+  }}
+>
+  <Send size={20} />
+</button>
         </div>
       </div>
 

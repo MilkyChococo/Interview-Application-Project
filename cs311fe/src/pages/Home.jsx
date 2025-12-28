@@ -1,5 +1,6 @@
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useState } from "react";
 import {
   Mic,
   Briefcase,
@@ -10,12 +11,21 @@ import {
   Zap,
   LogOut,
   User,
+  BookOpen
 } from "lucide-react";
 
 const Home = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user, logout } = useAuth();
+  const [showMockIntro, setShowMockIntro] = useState(false);
 
+  const openMockIntro = () => setShowMockIntro(true);
+  const closeMockIntro = () => setShowMockIntro(false);
+
+  const continueMock = () => {
+    setShowMockIntro(false);
+    navigate("/upload?mode=mock"); // hoặc route bạn muốn vào mock
+  };
   return (
     <div style={{ minHeight: "100vh" }}>
       {/* Header */}
@@ -312,7 +322,7 @@ const Home = () => {
             </button>
             {/* Nút mới Mock Interview */}
             <button
-              onClick={() => navigate("/upload?mode=mock")}
+              onClick={openMockIntro}
               style={{
                 background: "white",
                 color: "#3b82f6",
@@ -411,7 +421,11 @@ const Home = () => {
 
             {/* Feature 2 */}
             <Link
-              to="/upload?mode=mock"
+              to="#"
+              onClick={(e) => {
+                e.preventDefault();
+                openMockIntro();        
+              }}
               className="card"
               style={{
                 textDecoration: "none",
@@ -424,7 +438,7 @@ const Home = () => {
                 style={{
                   width: "64px",
                   height: "64px",
-                  background: "linear-gradient(135deg, #10b981, #059669)",
+                  background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
                   borderRadius: "16px",
                   display: "flex",
                   alignItems: "center",
@@ -432,28 +446,20 @@ const Home = () => {
                   marginBottom: "24px",
                 }}
               >
-                <Briefcase size={32} color="white" />
+                <BookOpen size={32} color="white" />
               </div>
-              <h3
-                style={{
-                  fontSize: "1.5rem",
-                  fontWeight: "700",
-                  marginBottom: "12px",
-                  color: "#111827",
-                }}
-              >
-                Real-world Scenarios (Mock)
+
+              <h3 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: 12, color: "#111827" }}>
+                Mock Interview
               </h3>
-              <p
-                style={{
-                  color: "#6b7280",
-                  lineHeight: "1.6",
-                }}
-              >
-                Practice with industry-specific questions tailored to your role
-                and experience level
+
+              <p style={{ color: "#6b7280", lineHeight: 1.6 }}>
+                Practice with AI and get a score.
               </p>
             </Link>
+
+
+
 
             {/* Feature 3 */}
             <div className="card">
@@ -695,6 +701,203 @@ const Home = () => {
           </p>
         </div>
       </footer>
+    {showMockIntro && (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      zIndex: 9999,
+    }}
+  >
+    {/* overlay mờ */}
+    <div
+      onClick={closeMockIntro}
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "rgba(0,0,0,0.45)",
+        backdropFilter: "blur(6px)",
+      }}
+    />
+
+    {/* modal */}
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxWidth: 760,
+          borderRadius: 20,
+          overflow: "hidden",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+          background: "white",
+        }}
+      >
+        {/* header gradient */}
+        <div
+          style={{
+            padding: "18px 20px",
+            color: "white",
+            background: "linear-gradient(135deg, #1e40af, #7c3aed, #4338ca)",
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800 }}>
+              Mock Interview Rules & Scoring
+            </div>
+            <div style={{ marginTop: 6, opacity: 0.9, fontSize: 13, lineHeight: 1.4 }}>
+              Please read before starting to get the most accurate result.
+            </div>
+          </div>
+
+          <button
+            onClick={closeMockIntro}
+            style={{
+              background: "rgba(255,255,255,0.15)",
+              color: "white",
+              border: "1px solid rgba(255,255,255,0.25)",
+              padding: "8px 10px",
+              borderRadius: 10,
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* body */}
+        <div style={{ padding: 20 }}>
+          {/* key points */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: 12,
+            }}
+          >
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 14, background: "#f9fafb" }}>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>Time limit</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginTop: 4 }}>
+                50 minutes
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+                Try to answer calmly and clearly.
+              </div>
+            </div>
+
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 14, background: "#f9fafb" }}>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>Minimum answers</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginTop: 4 }}>
+                ≥ 10 answers
+              </div>
+              <div style={{ fontSize: 12, color: "#b45309", marginTop: 6 }}>
+                Below 10 answers → penalty applies.
+              </div>
+            </div>
+
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 14, background: "#f9fafb" }}>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>Scoring signals</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginTop: 6, color: "#111827" }}>
+                Knowledge • Attitude • Emotion
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+                Final score combines interview + face emotion.
+              </div>
+            </div>
+          </div>
+
+          {/* scoring explanation */}
+          <div style={{ marginTop: 16, border: "1px solid #e5e7eb", borderRadius: 14, padding: 14 }}>
+            <div style={{ fontWeight: 800, color: "#111827" }}>How the score is calculated</div>
+
+            <ul style={{ marginTop: 10, paddingLeft: 18, color: "#374151", lineHeight: 1.6, fontSize: 14 }}>
+              <li><b>Knowledge</b>: correctness + completeness + relevance to each question.</li>
+              <li><b>Attitude</b>: professionalism, cooperation, calm tone, admits gaps honestly.</li>
+              <li><b>Emotion</b>: face emotion stability during the session.</li>
+              <li><b>Penalty</b>: if you answer <b>&lt; 10</b> questions, we down-weight fairness and reduce confidence.</li>
+            </ul>
+
+            <div
+              style={{
+                marginTop: 10,
+                padding: 12,
+                borderRadius: 12,
+                background: "#f3f4f6",
+                fontFamily: "monospace",
+                fontSize: 12,
+                color: "#111827",
+                overflowX: "auto",
+              }}
+            >
+              total = agent_final * w_agent_final + emotion_face * w_emotion
+            </div>
+
+            <div style={{ marginTop: 8, fontSize: 12, color: "#6b7280" }}>
+              Tip: For the most reliable result, spend time answering fully and consistently.
+            </div>
+          </div>
+        </div>
+
+        {/* footer */}
+        <div
+          style={{
+            padding: 16,
+            borderTop: "1px solid #e5e7eb",
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 10,
+            background: "white",
+          }}
+        >
+          <button
+            onClick={closeMockIntro}
+            style={{
+              background: "transparent",
+              color: "#374151",
+              border: "1px solid #e5e7eb",
+              padding: "12px 18px",
+              borderRadius: 10,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Back
+          </button>
+
+          <button
+            onClick={continueMock}
+            style={{
+              background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+              color: "white",
+              border: "none",
+              padding: "12px 18px",
+              borderRadius: 10,
+              fontWeight: 800,
+              cursor: "pointer",
+            }}
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
     </div>
   );
 };

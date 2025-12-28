@@ -6,10 +6,13 @@ import ChatPanel from "../components/ChatPanel";
 import Resizer from "../components/Resizer";
 import useVoiceRecognition from "../hooks/useVoiceRecognition";
 import { v4 as uuidv4 } from "uuid";
+import InterviewResultCard from "../components/InterviewResult";
 
 const API_URL = "http://localhost:3005";
 
 const MockInterview = () => {
+  const [autoEval, setAutoEval] = useState(null);
+  const [showEval, setShowEval] = useState(false);
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
@@ -21,12 +24,53 @@ const MockInterview = () => {
   const location = useLocation();
   const [messages, setMessages] = useState([]);
 
-  // NEW: timer + question counter
-  const [remainingSeconds, setRemainingSeconds] = useState(45 * 60); // 45:00
-  const [questionCount, setQuestionCount] = useState(0); // sẽ set = 1 sau khi load first question
+  const [remainingSeconds, setRemainingSeconds] = useState(50 * 60);
+  const [questionCount, setQuestionCount] = useState(0);
+  const [isTimeUp, setIsTimeUp] = useState(false);
+  const [hasAutoSaved, setHasAutoSaved] = useState(false);
+  const [phase, setPhase] = useState("running"); 
+
+  const emotionStartedRef = useRef(false);
+  
+  const handleHome = async () => {
+    const sid = sessionId || localStorage.getItem("interview_session_id");
+    try {
+      if (isRecording) stopRecording();
+
+      if (sid) {
+        await fetch(`${API_URL}/emotion/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sid }),
+        });
+      }
+    } finally {
+      navigate("/");
+    }
+  };
 
   useEffect(() => {
-    // Đếm ngược thời gian
+    const sid = sessionId || localStorage.getItem("interview_session_id");
+    if (!sid || emotionStartedRef.current) return;
+
+    emotionStartedRef.current = true;
+    fetch(`${API_URL}/emotion/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sid }),
+    });
+
+    return () => {
+      if (import.meta.env.DEV) return;
+      fetch(`${API_URL}/emotion/stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sid }),
+      });
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
     if (remainingSeconds <= 0) return;
     const id = setInterval(
       () => setRemainingSeconds((s) => Math.max(0, s - 1)),
@@ -36,33 +80,22 @@ const MockInterview = () => {
   }, [remainingSeconds]);
 
   useEffect(() => {
-    // Check authentication
     if (!isAuthenticated) {
       navigate("/signin");
       return;
     }
 
-    // Try to get sessionId from navigation state first
     const stateSessionId = location.state?.sessionId;
-
-    // If not in state, try localStorage (from Upload page)
     const storedSessionId = localStorage.getItem("interview_session_id");
-
-    // Use state sessionId first, then stored, then create new
     const finalSessionId = stateSessionId || storedSessionId || uuidv4();
 
     setSessionId(finalSessionId);
     console.log("Interview page sessionId:", finalSessionId);
-    console.log("State sessionId:", stateSessionId);
-    console.log("Stored sessionId:", storedSessionId);
 
-    // Always save to localStorage for consistency
     localStorage.setItem("interview_session_id", finalSessionId);
 
-    // Load câu hỏi mở đầu từ Upload (/mock/start đã lưu localStorage)
     const savedFirst = localStorage.getItem("mock_first_question");
     if (!savedFirst) {
-      // Chưa có phiên mock -> quay lại upload (mode=mock)
       navigate("/upload?mode=mock");
       return;
     }
@@ -78,6 +111,97 @@ const MockInterview = () => {
     useVoiceRecognition();
 
   useEffect(() => {
+  const sid = sessionId || localStorage.getItem("interview_session_id");
+  if (!sid) return;
+
+  if (remainingSeconds === 0 && !hasAutoSaved) {
+    (async () => {
+      setHasAutoSaved(true);
+      setIsTimeUp(true);
+
+      // 1) KHÓA INPUT + STOP RECORD
+      setPhase("saving");
+      if (isRecording) stopRecording();
+
+      // 2) THÔNG BÁO "ĐANG TỔNG KẾT"
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: prev.length + 1,
+          type: "bot",
+          message:
+            "Time's up. I'm saving your transcript and generating the interview summary...",
+          timestamp: new Date(),
+        },
+      ]);
+
+      // ❌ BỎ SPEAK để không nói nữa
+      // speak("Time's up! I'm saving your transcript now.");
+
+      try {
+        // stop emotion logging (không quan trọng nếu fail)
+        await fetch(`${API_URL}/emotion/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sid }),
+        });
+      } catch (e) {
+        console.error("emotion stop error:", e);
+      }
+
+      try {
+        // 3) ĐANG CHẤM ĐIỂM
+        setPhase("evaluating");
+
+        const res = await fetch(`${API_URL}/mock/export?session_id=${sid}`, {
+          method: "POST",
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`export failed: ${res.status} ${text}`);
+        }
+
+        const data = await res.json().catch(() => ({}));
+        console.log("AUTO EVAL:", data?.auto_eval);
+
+        // 4) THÔNG BÁO "XONG RỒI" TRƯỚC KHI BẬT BẢNG
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: prev.length + 1,
+            type: "bot",
+            message: "Summary complete. Here are your results.",
+            timestamp: new Date(),
+          },
+        ]);
+
+        setAutoEval(data?.auto_eval || null);
+
+        // 5) CHỈ SHOW MODAL SAU KHI CÓ DATA
+        setShowEval(true);
+        setPhase("done");
+      } catch (err) {
+        console.error(err);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: prev.length + 1,
+            type: "bot",
+            message:
+              "I couldn't generate the summary due to an error. Please try again.",
+            timestamp: new Date(),
+          },
+        ]);
+        setPhase("done");
+      }
+    })();
+  }
+}, [remainingSeconds, hasAutoSaved, sessionId, isRecording, stopRecording]);
+
+
+  useEffect(() => {
+    if (phase !== "running") return; // ✅
     if (transcript) {
       sendMessage(transcript);
     }
@@ -90,6 +214,8 @@ const MockInterview = () => {
   }, [messages]);
 
   const sendMessage = async (messageText = inputMessage) => {
+    if (phase !== "running") return;
+    if (remainingSeconds <= 0 || isTimeUp) return;
     const text = messageText.trim();
     const sid = sessionId || localStorage.getItem("interview_session_id");
     if (!text || !sid) return;
@@ -106,7 +232,6 @@ const MockInterview = () => {
     setIsTyping(true);
 
     try {
-      // Gọi mock agent thay vì chatDomain
       const response = await fetch(`${API_URL}/mock/turn`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -146,7 +271,6 @@ const MockInterview = () => {
       }
 
       const data = await response.json();
-      // Thêm meta summary (reasoning)
       const metaMessage = {
         id: messages.length + 2,
         type: "meta",
@@ -200,6 +324,7 @@ const MockInterview = () => {
   };
 
   const toggleRecording = () => {
+    if (phase !== "running") return;
     if (isRecording) {
       stopRecording();
     } else {
@@ -217,7 +342,6 @@ const MockInterview = () => {
     if (isResizing.current) {
       const newWidth = window.innerWidth - e.clientX;
       if (newWidth > 300 && newWidth < window.innerWidth * 0.7) {
-        // Min and Max width constraints
         setChatPanelWidth(newWidth);
       }
     }
@@ -230,11 +354,12 @@ const MockInterview = () => {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", height: "100vh" }}>
+    <div style={{ minHeight: "100vh", display: "flex", height: "100vh", position: "relative" }}>
       <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
         <CharacterPanel
           remainingSeconds={remainingSeconds}
           questionCount={questionCount}
+          onHome={handleHome}
         />
       </div>
       <Resizer onMouseDown={handleMouseDown} />
@@ -249,8 +374,52 @@ const MockInterview = () => {
           sendMessage={sendMessage}
           toggleRecording={toggleRecording}
           formatTime={formatTime}
+          disabled={phase !== "running"} 
         />
       </div>
+
+      {/* Modal Overlay - Hiển thị toàn màn hình */}
+      {showEval && autoEval && (
+        <div 
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem"
+          }}
+        >
+          {/* Lớp nền mờ */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundColor: "rgba(0, 0, 0, 0.75)",
+              backdropFilter: "blur(8px)"
+            }}
+            onClick={() => setShowEval(false)}
+          />
+
+          {/* Card kết quả */}
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              maxWidth: "48rem",
+              maxHeight: "90vh",
+              overflowY: "auto"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <InterviewResultCard 
+              autoEval={autoEval} 
+              onClose={() => setShowEval(false)} 
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

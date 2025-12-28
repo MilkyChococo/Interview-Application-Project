@@ -4,7 +4,7 @@ import BackgroundImage from "../image/bg.jpg";
 import { Home } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-const CharacterPanel = ({ remainingSeconds = 45 * 60, questionCount = 1 }) => {
+const CharacterPanel = ({ remainingSeconds = 45 * 60, questionCount = 1, onHome}) => {
   const navigate = useNavigate();
   const mm = String(Math.floor(remainingSeconds / 60)).padStart(2, "0");
   const ss = String(remainingSeconds % 60).padStart(2, "0");
@@ -55,7 +55,7 @@ const CharacterPanel = ({ remainingSeconds = 45 * 60, questionCount = 1 }) => {
           </p>
         </div>
         <button
-          onClick={() => navigate("/")}
+          onClick={() => (onHome ? onHome() : navigate("/"))}
           style={{
             background: "rgba(255, 255, 255, 0.2)",
             border: "1px solid rgba(255, 255, 255, 0.3)",

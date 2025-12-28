@@ -4,6 +4,7 @@ from datetime import datetime
 import re
 from fastapi import HTTPException
 from src.engines.llm_engine import get_llm_engine
+from pathlib import Path
 
 _engine = get_llm_engine()
 
@@ -76,3 +77,49 @@ class MockAgentService:
             next_q = next_q.rstrip(".") + "?"
         s.turns.append(MockTurn(question=next_q, answer=None))
         return {"reasoning_summary": reasoning, "next_question": next_q, "followups": []}
+    def export_transcript_txt(self, session_id: str, out_dir: str = "exports") -> str:
+        if session_id not in self.sessions:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        s = self.sessions[session_id]
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+        # Tên file an toàn (tránh ký tự lạ)
+        safe_sid = "".join(ch for ch in session_id if ch.isalnum() or ch in ("-", "_"))
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        file_path = Path(out_dir) / f"mock_{safe_sid}_{ts}.txt"
+
+        lines = []
+        lines.append("=== MOCK INTERVIEW TRANSCRIPT ===")
+        lines.append(f"Session: {s.session_id}")
+        lines.append(f"Role: {s.role or self._role_from_jd(s.jd_text, None)}")
+        lines.append(f"Exported (UTC): {datetime.utcnow().isoformat()}Z")
+        lines.append("")
+
+        q_idx = 0
+        for t in s.turns:
+            # mỗi turn của bạn thường là: (question, answer, summary)
+            if t.question:
+                q_idx += 1
+                lines.append(f"[Q{q_idx}] ({t.time.isoformat()}Z)")
+                lines.append(t.question)
+                lines.append("")
+
+            if t.answer:
+                lines.append(f"[A{q_idx}] ({t.time.isoformat()}Z)")
+                lines.append(t.answer)
+                lines.append("")
+
+            if t.summary:
+                lines.append(f"[Summary Q{q_idx}]")
+                lines.append(t.summary)
+                lines.append("")
+
+            lines.append("-" * 60)
+
+        content = "\n".join(lines)
+
+        # Ghi UTF-8 để không lỗi tiếng Việt
+        file_path.write_text(content, encoding="utf-8")
+
+        return str(file_path)

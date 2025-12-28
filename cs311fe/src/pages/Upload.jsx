@@ -108,6 +108,7 @@ const UploadPage = () => {
     try {
       const formData = new FormData();
       formData.append("job_description", jdText);
+      console.log("jdText:", jdText);
       formData.append("session_id", sessionId);
 
       const response = await fetch(`${API_URL}/chat/extract-job/`, {
@@ -140,7 +141,7 @@ const UploadPage = () => {
     const payload = {
       session_id: sessionId,
       cv_text: cvData && cvData.text ? cvData.text : String(cvData || ""),
-      jd_text: jdData && jdData.text ? jdData.text : String(jdData || ""),
+      jd_text: (jdText && jdText.trim()) ? jdText : (jdData?.text ?? JSON.stringify(jdData ?? "")),
     };
     const res = await fetch(`${API_URL}/mock/start`, {
       method: "POST",
