@@ -1,6 +1,0 @@
-2025-12-24T14:18:16.845397Z	emotion=angry	
-2025-12-24T14:18:26.855566Z	emotion=angry	
-2025-12-24T14:18:36.868017Z	emotion=angry	
-2025-12-24T14:18:46.883780Z	emotion=angry	
-2025-12-24T14:18:56.890094Z	emotion=neutral	
-2025-12-24T14:19:06.907971Z	emotion=fear	
