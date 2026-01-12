@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Upload,
@@ -7,6 +7,7 @@ import {
   XCircle,
   ArrowRight,
   File,
+  Trash2,
 } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 
@@ -28,6 +29,60 @@ const UploadPage = () => {
   const [jdError, setJdError] = useState("");
   const [cvData, setCvData] = useState(null);
   const [jdData, setJdData] = useState(null);
+  const [savedCvFilename, setSavedCvFilename] = useState(null);
+  const [cvFromStorage, setCvFromStorage] = useState(false);
+  const [jdFromStorage, setJdFromStorage] = useState(false);
+
+  // Load saved CV/JD data from localStorage on mount
+  useEffect(() => {
+    const savedCvData = localStorage.getItem("saved_cv_data");
+    const savedCvName = localStorage.getItem("saved_cv_filename");
+    const savedJdData = localStorage.getItem("saved_jd_data");
+    const savedJdText = localStorage.getItem("saved_jd_text");
+
+    if (savedCvData && savedCvName) {
+      try {
+        setCvData(JSON.parse(savedCvData));
+        setSavedCvFilename(savedCvName);
+        setCvStatus("success");
+        setCvFromStorage(true);
+      } catch (e) {
+        console.error("Failed to parse saved CV data:", e);
+      }
+    }
+
+    if (savedJdData && savedJdText) {
+      try {
+        setJdData(JSON.parse(savedJdData));
+        setJdText(savedJdText);
+        setJdStatus("success");
+        setJdFromStorage(true);
+      } catch (e) {
+        console.error("Failed to parse saved JD data:", e);
+      }
+    }
+  }, []);
+
+  const clearSavedCv = () => {
+    localStorage.removeItem("saved_cv_data");
+    localStorage.removeItem("saved_cv_filename");
+    setCvData(null);
+    setCvFile(null);
+    setSavedCvFilename(null);
+    setCvStatus(null);
+    setCvFromStorage(false);
+    setCvError("");
+  };
+
+  const clearSavedJd = () => {
+    localStorage.removeItem("saved_jd_data");
+    localStorage.removeItem("saved_jd_text");
+    setJdData(null);
+    setJdText("");
+    setJdStatus(null);
+    setJdFromStorage(false);
+    setJdError("");
+  };
 
   const handleCvFileChange = (e) => {
     const file = e.target.files[0];
@@ -85,6 +140,11 @@ const UploadPage = () => {
       const data = await response.json();
       setCvData(data.resume_data);
       setCvStatus("success");
+      setCvFromStorage(false);
+      // Save to localStorage
+      localStorage.setItem("saved_cv_data", JSON.stringify(data.resume_data));
+      localStorage.setItem("saved_cv_filename", cvFile.name);
+      setSavedCvFilename(cvFile.name);
     } catch (error) {
       console.error("CV upload error:", error);
       setCvError(error.message || "Failed to upload CV. Please try again.");
@@ -126,6 +186,10 @@ const UploadPage = () => {
       const data = await response.json();
       setJdData(data.job_data);
       setJdStatus("success");
+      setJdFromStorage(false);
+      // Save to localStorage
+      localStorage.setItem("saved_jd_data", JSON.stringify(data.job_data));
+      localStorage.setItem("saved_jd_text", jdText);
     } catch (error) {
       console.error("JD upload error:", error);
       setJdError(
@@ -443,22 +507,42 @@ const UploadPage = () => {
             {cvStatus === "success" && (
               <div
                 style={{
-                  background: "#f0fdf4",
-                  border: "1px solid #86efac",
+                  background: cvFromStorage ? "#eff6ff" : "#f0fdf4",
+                  border: `1px solid ${cvFromStorage ? "#93c5fd" : "#86efac"}`,
                   borderRadius: "8px",
                   padding: "12px",
                   marginBottom: "16px",
                   display: "flex",
                   alignItems: "center",
+                  justifyContent: "space-between",
                   gap: "8px",
                 }}
               >
-                <CheckCircle size={20} color="#16a34a" />
-                <p
-                  style={{ color: "#16a34a", fontSize: "0.875rem", margin: 0 }}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <CheckCircle size={20} color={cvFromStorage ? "#3b82f6" : "#16a34a"} />
+                  <div>
+                    <p
+                      style={{ color: cvFromStorage ? "#3b82f6" : "#16a34a", fontSize: "0.875rem", margin: 0 }}
+                    >
+                      {cvFromStorage ? `Using saved CV: ${savedCvFilename}` : "CV uploaded and extracted successfully!"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={clearSavedCv}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "4px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  title="Clear saved CV"
                 >
-                  CV uploaded and extracted successfully!
-                </p>
+                  <Trash2 size={16} color="#6b7280" />
+                </button>
               </div>
             )}
 
@@ -589,22 +673,40 @@ const UploadPage = () => {
             {jdStatus === "success" && (
               <div
                 style={{
-                  background: "#f0fdf4",
-                  border: "1px solid #86efac",
+                  background: jdFromStorage ? "#eff6ff" : "#f0fdf4",
+                  border: `1px solid ${jdFromStorage ? "#93c5fd" : "#86efac"}`,
                   borderRadius: "8px",
                   padding: "12px",
                   marginBottom: "16px",
                   display: "flex",
                   alignItems: "center",
+                  justifyContent: "space-between",
                   gap: "8px",
                 }}
               >
-                <CheckCircle size={20} color="#16a34a" />
-                <p
-                  style={{ color: "#16a34a", fontSize: "0.875rem", margin: 0 }}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <CheckCircle size={20} color={jdFromStorage ? "#3b82f6" : "#16a34a"} />
+                  <p
+                    style={{ color: jdFromStorage ? "#3b82f6" : "#16a34a", fontSize: "0.875rem", margin: 0 }}
+                  >
+                    {jdFromStorage ? "Using saved Job Description" : "Job description extracted successfully!"}
+                  </p>
+                </div>
+                <button
+                  onClick={clearSavedJd}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "4px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  title="Clear saved Job Description"
                 >
-                  Job description extracted successfully!
-                </p>
+                  <Trash2 size={16} color="#6b7280" />
+                </button>
               </div>
             )}
 
