@@ -1,32 +1,37 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import CharacterPanel from "../components/CharacterPanel";
 import ChatPanel from "../components/ChatPanel";
+import ChatSidebar from "../components/ChatSidebar";
 import Resizer from "../components/Resizer";
 import useVoiceRecognition from "../hooks/useVoiceRecognition";
 import { v4 as uuidv4 } from "uuid";
 
 const API_URL = "http://localhost:3005";
 
+const DEFAULT_BOT_MESSAGE = {
+  id: 1,
+  type: "bot",
+  message:
+    "Hello! I'm your AI interviewer. I'll help you practice for your upcoming interview. Let's start with a simple question: Can you tell me about yourself?",
+  timestamp: new Date(),
+};
+
 const Interview = () => {
   const { isAuthenticated, getAuthHeaders } = useAuth();
   const navigate = useNavigate();
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      type: "bot",
-      message:
-        "Hello! I'm your AI interviewer. I'll help you practice for your upcoming interview. Let's start with a simple question: Can you tell me about yourself?",
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState([DEFAULT_BOT_MESSAGE]);
   const [inputMessage, setInputMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [chatPanelWidth, setChatPanelWidth] = useState(480);
   const isResizing = useRef(false);
   const [sessionId, setSessionId] = useState(null);
   const location = useLocation();
+
+  // Sidebar state
+  const [chatSessions, setChatSessions] = useState([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // NEW: countdown + question counter
   const [remainingSeconds, setRemainingSeconds] = useState(45 * 60); // 45:00
@@ -81,6 +86,88 @@ const Interview = () => {
       speak(messages[0].message);
     }
   }, []);
+
+  // Load chat sessions from localStorage on mount
+  useEffect(() => {
+    const savedSessions = localStorage.getItem("interview_chat_sessions");
+    if (savedSessions) {
+      try {
+        const parsed = JSON.parse(savedSessions);
+        setChatSessions(parsed);
+      } catch (e) {
+        console.error("Failed to parse saved sessions:", e);
+      }
+    }
+  }, []);
+
+  // Save current session to localStorage whenever messages change
+  useEffect(() => {
+    if (!sessionId || messages.length <= 1) return;
+
+    setChatSessions((prevSessions) => {
+      const existingIndex = prevSessions.findIndex((s) => s.id === sessionId);
+      const updatedSession = {
+        id: sessionId,
+        messages: messages.map((m) => ({
+          ...m,
+          timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+        })),
+        createdAt: existingIndex >= 0 ? prevSessions[existingIndex].createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      let newSessions;
+      if (existingIndex >= 0) {
+        newSessions = [...prevSessions];
+        newSessions[existingIndex] = updatedSession;
+      } else {
+        newSessions = [updatedSession, ...prevSessions];
+      }
+
+      // Save to localStorage
+      localStorage.setItem("interview_chat_sessions", JSON.stringify(newSessions));
+      return newSessions;
+    });
+  }, [messages, sessionId]);
+
+  // Handle creating a new chat
+  const handleNewChat = useCallback(() => {
+    const newSessionId = uuidv4();
+    setSessionId(newSessionId);
+    setMessages([{ ...DEFAULT_BOT_MESSAGE, timestamp: new Date() }]);
+    setRemainingSeconds(45 * 60);
+    setQuestionCount(1);
+    localStorage.setItem("interview_session_id", newSessionId);
+  }, []);
+
+  // Handle selecting an existing chat
+  const handleSelectChat = useCallback((selectedSessionId) => {
+    const session = chatSessions.find((s) => s.id === selectedSessionId);
+    if (session) {
+      setSessionId(selectedSessionId);
+      setMessages(
+        session.messages.map((m) => ({
+          ...m,
+          timestamp: new Date(m.timestamp),
+        }))
+      );
+      localStorage.setItem("interview_session_id", selectedSessionId);
+    }
+  }, [chatSessions]);
+
+  // Handle deleting a chat
+  const handleDeleteChat = useCallback((deleteSessionId) => {
+    setChatSessions((prevSessions) => {
+      const newSessions = prevSessions.filter((s) => s.id !== deleteSessionId);
+      localStorage.setItem("interview_chat_sessions", JSON.stringify(newSessions));
+      return newSessions;
+    });
+
+    // If deleting current session, create a new one
+    if (deleteSessionId === sessionId) {
+      handleNewChat();
+    }
+  }, [sessionId, handleNewChat]);
 
   const sendMessage = async (messageText = inputMessage) => {
     if (!messageText.trim() || !sessionId) return;
@@ -210,6 +297,17 @@ const Interview = () => {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", height: "100vh" }}>
+      {/* Chat History Sidebar */}
+      <ChatSidebar
+        chatSessions={chatSessions}
+        currentSessionId={sessionId}
+        onNewChat={handleNewChat}
+        onSelectChat={handleSelectChat}
+        onDeleteChat={handleDeleteChat}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
+      
       <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
         <CharacterPanel
           remainingSeconds={remainingSeconds}
