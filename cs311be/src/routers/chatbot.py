@@ -566,6 +566,24 @@ async def chat_with_agent(
     # This ensures agent always has context available
     context_messages = []
     
+    # CRITICAL: Add session_id/room_id context FIRST so agent knows what session_id to use
+    context_messages.append(
+        ChatMessage(
+            role="system",
+            content=f"""[SESSION_CONTEXT]
+room_id = "{session_id}"
+session_id = "{session_id}"
+
+IMPORTANT: When calling ANY tool, you MUST use session_id="{session_id}" exactly as shown above.
+- For start_interview: use session_id="{session_id}"
+- For submit_interview_answer: use session_id="{session_id}" (THE SAME value!)
+- For get_interview_results: use session_id="{session_id}"
+
+DO NOT create a new session_id. DO NOT modify this value. Use it exactly as provided."""
+        )
+    )
+    print(f"[DEBUG] Added session_id context: {session_id}")
+    
     # Add CV information to memory
     if formatted_resume:
         context_messages.append(
@@ -591,14 +609,14 @@ async def chat_with_agent(
         context_messages.append(
             ChatMessage(
                 role="assistant",
-                content="I have received both the candidate's resume and job description. I will analyze them and automatically create a personalized interview plan based on the candidate's experience and the job requirements. When you're ready to start, I'll use the provided user_project and job_description in the start_interview tool."
+                content=f"I have received both the candidate's resume and job description. I will analyze them and create a personalized interview plan. The session_id for this interview is: {session_id}. When you say 'Start', I will call start_interview with session_id='{session_id}'."
             )
         )
     elif formatted_resume:
         context_messages.append(
             ChatMessage(
                 role="assistant",
-                content="I have received the candidate's resume. I will use this information to create an interview plan. If job description is needed, I will ask for it."
+                content=f"I have received the candidate's resume. The session_id is: {session_id}. I will use this information to create an interview plan."
             )
         )
     elif formatted_job:
