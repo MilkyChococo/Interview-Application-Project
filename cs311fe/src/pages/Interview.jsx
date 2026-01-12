@@ -33,6 +33,10 @@ const Interview = () => {
   const [chatSessions, setChatSessions] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // Recording timer state
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const recordingTimerRef = useRef(null);
+
   // NEW: countdown + question counter
   const [remainingSeconds, setRemainingSeconds] = useState(45 * 60); // 45:00
   const [questionCount, setQuestionCount] = useState(1); // câu mở đầu đã là 1
@@ -268,9 +272,42 @@ const Interview = () => {
   const toggleRecording = () => {
     if (isRecording) {
       stopRecording();
+      // Stop recording timer
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      setRecordingSeconds(0);
     } else {
       startRecording();
+      // Start recording timer
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
     }
+  };
+
+  // Cleanup recording timer on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Handle start interview button click
+  const handleStartInterview = () => {
+    sendMessage("Start");
+  };
+
+  // Handle view report button click
+  const handleViewReport = () => {
+    // Save session data to localStorage for EvaluationReport
+    localStorage.setItem("evaluation_session_id", sessionId);
+    // Navigate to evaluation report page
+    navigate(`/evaluation-report?sessionId=${encodeURIComponent(sessionId)}`);
   };
 
   const handleMouseDown = (e) => {
@@ -309,10 +346,7 @@ const Interview = () => {
       />
       
       <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-        <CharacterPanel
-          remainingSeconds={remainingSeconds}
-          questionCount={questionCount}
-        />
+        <CharacterPanel showInfoBar={false} />
       </div>
       <Resizer onMouseDown={handleMouseDown} />
       <div style={{ width: `${chatPanelWidth}px`, flexShrink: 0 }}>
@@ -326,6 +360,9 @@ const Interview = () => {
           sendMessage={sendMessage}
           toggleRecording={toggleRecording}
           formatTime={formatTime}
+          recordingSeconds={recordingSeconds}
+          onStartInterview={handleStartInterview}
+          onViewReport={handleViewReport}
         />
       </div>
     </div>
