@@ -22,8 +22,9 @@ load_dotenv()
 TOP_K = int(os.getenv("TOP_K", "5"))  # Default to 5 if not set
 
 # Get vectorstore path from environment or use default
-vectorstore_path = os.getenv("VECTORSTORE_PATH")
-
+vectorstore_path = "D:\CODE\DSC\dsc2025API\src\chroma_db_master_program"
+print(vectorstore_path)
+print(f"Path exists: {os.path.exists(vectorstore_path)}")
 # Check if the environment path exists, if not use local path
 if vectorstore_path and os.path.exists(vectorstore_path):
     pass  # Use environment path
@@ -55,9 +56,15 @@ class ChatbotTools:
         self.interview_storage = InterviewStorage()
     def _initialize_qa_retriever(self):
         db = chromadb.PersistentClient(path=vectorstore_path)
+        print(f"DB: {db}")
         chroma_collection = db.get_or_create_collection("question_collection")
+        total_count = chroma_collection.count()
+        print(f"Total questions in 'question_collection': {total_count}")
+        print(f"Chroma collection: {chroma_collection}")
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        print(f"Vector store: {vector_store}")
         index = VectorStoreIndex.from_vector_store(vector_store)
+        print(f"Index: {index}")
         return VectorIndexRetriever(index=index, similarity_top_k=10)
     
 
@@ -344,6 +351,7 @@ Cải thiện:
         for i, kw in enumerate(keywords):
             try:
                 result = await retriever.aretrieve(kw)
+                print(f"Result: {result}")
                 #xử lí list câu hỏi để chọn câu phù hợp với CV và JD nhất
                 nodes = result if isinstance(result, list) else [result] if result else []
                 if nodes:
