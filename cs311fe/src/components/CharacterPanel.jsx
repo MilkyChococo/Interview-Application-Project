@@ -4,7 +4,7 @@ import BackgroundImage from "../image/bg.jpg";
 import { Home } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
-const CharacterPanel = ({ remainingSeconds = 45 * 60, questionCount = 1, onHome}) => {
+const CharacterPanel = ({ remainingSeconds = 45 * 60, questionCount = 1, onHome, showInfoBar = true }) => {
   const navigate = useNavigate();
   const mm = String(Math.floor(remainingSeconds / 60)).padStart(2, "0");
   const ss = String(remainingSeconds % 60).padStart(2, "0");
@@ -88,70 +88,71 @@ const CharacterPanel = ({ remainingSeconds = 45 * 60, questionCount = 1, onHome}
         <Character3D />
       </div>
 
-      {/* Info card */}
-      <div
-        style={{
-          padding: "24px",
-          background: "rgba(255, 255, 255, 0.1)",
-          backdropFilter: "blur(10px)",
-          borderTop: "1px solid rgba(255, 255, 255, 0.2)",
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          zIndex: 10,
-        }}
-      >
+      {/* Info card - only show if showInfoBar is true */}
+      {showInfoBar && (
         <div
           style={{
-            display: "flex",
-            gap: "24px",
-            justifyContent: "center",
+            padding: "24px",
+            background: "rgba(255, 255, 255, 0.1)",
+            backdropFilter: "blur(10px)",
+            borderTop: "1px solid rgba(255, 255, 255, 0.2)",
+            position: "absolute",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 10,
           }}
         >
-          <div style={{ textAlign: "center" }}>
-            <div
-              style={{
-                fontSize: "32px",
-                fontWeight: "700",
-                color: "white",
-                marginBottom: "4px",
-              }}
-            >
-              {mm}:{ss}
-            </div>
-            <div
-              style={{ fontSize: "14px", color: "rgba(255, 255, 255, 0.8)" }}
-            >
-              Interview Time
-            </div>
-          </div>
           <div
             style={{
-              width: "1px",
-              background: "rgba(255, 255, 255, 0.2)",
+              display: "flex",
+              gap: "24px",
+              justifyContent: "center",
             }}
-          ></div>
-          <div style={{ textAlign: "center" }}>
+          >
+            <div style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  fontSize: "32px",
+                  fontWeight: "700",
+                  color: "white",
+                  marginBottom: "4px",
+                }}
+              >
+                {mm}:{ss}
+              </div>
+              <div
+                style={{ fontSize: "14px", color: "rgba(255, 255, 255, 0.8)" }}
+              >
+                Interview Time
+              </div>
+            </div>
             <div
               style={{
-                fontSize: "32px",
-                fontWeight: "700",
-                color: "white",
-                marginBottom: "4px",
+                width: "1px",
+                background: "rgba(255, 255, 255, 0.2)",
               }}
-            >
-              {questionCount}
-            </div>
-            <div
-              style={{ fontSize: "14px", color: "rgba(255, 255, 255, 0.8)" }}
-            >
-              Questions
+            ></div>
+            <div style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  fontSize: "32px",
+                  fontWeight: "700",
+                  color: "white",
+                  marginBottom: "4px",
+                }}
+              >
+                {questionCount}
+              </div>
+              <div
+                style={{ fontSize: "14px", color: "rgba(255, 255, 255, 0.8)" }}
+              >
+                Questions
+              </div>
             </div>
           </div>
-          {/* Đã xóa Performance */}
         </div>
-      </div>
+      )}
     </div>
   );
 };

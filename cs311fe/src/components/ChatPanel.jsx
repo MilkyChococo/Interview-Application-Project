@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Send, Mic, MicOff, Bot, User } from 'lucide-react';
+import { Send, Mic, MicOff, Bot, User, Play, FileText } from 'lucide-react';
 
 const ChatPanel = ({
   messages,
@@ -12,8 +12,22 @@ const ChatPanel = ({
   toggleRecording,
   formatTime,
   disabled = false, 
-  phase = "running"
+  phase = "running",
+  recordingSeconds = 0,
+  onStartInterview,
+  onViewReport
 }) => {
+  // Helper to check if message contains interview plan keywords
+  const hasInterviewPlan = (message) => {
+    const keywords = ['kế hoạch phỏng vấn', 'interview plan', 'let\'s begin', 'hãy bắt đầu', 'ready to start'];
+    return keywords.some(keyword => message.toLowerCase().includes(keyword.toLowerCase()));
+  };
+
+  // Helper to check if message contains evaluation/final assessment keywords
+  const hasEvaluation = (message) => {
+    const keywords = ['ĐÁNH GIÁ', 'đánh giá cuối', 'final evaluation', 'final assessment', 'interview summary', 'overall score', 'tổng kết'];
+    return keywords.some(keyword => message.toLowerCase().includes(keyword.toLowerCase()));
+  };
   const messagesEndRef = useRef(null);
   const canSend = !disabled && inputMessage.trim();
   const scrollToBottom = () => {
@@ -126,7 +140,59 @@ const ChatPanel = ({
                 lineHeight: '1.6',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
               }}>
-                {msg.message}
+                <div style={{ whiteSpace: 'pre-wrap' }}>{msg.message}</div>
+                
+                {/* Start Interview Button */}
+                {msg.type === 'bot' && hasInterviewPlan(msg.message) && onStartInterview && (
+                  <button
+                    onClick={onStartInterview}
+                    style={{
+                      marginTop: '12px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                      color: 'white',
+                      fontWeight: '600',
+                      fontSize: '13px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <Play size={14} />
+                    Start Interview
+                  </button>
+                )}
+                
+                {/* View Report Button */}
+                {msg.type === 'bot' && hasEvaluation(msg.message) && onViewReport && (
+                  <button
+                    onClick={onViewReport}
+                    style={{
+                      marginTop: '12px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      color: 'white',
+                      fontWeight: '600',
+                      fontSize: '13px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <FileText size={14} />
+                    View Report
+                  </button>
+                )}
               </div>
               <div style={{
                 fontSize: '11px',
@@ -200,31 +266,53 @@ const ChatPanel = ({
           gap: '8px',
           alignItems: 'flex-end'
         }}>
-          <button
-        onClick={() => { if (!disabled) toggleRecording(); }}
-        disabled={disabled}
-        style={{
-          width: '44px',
-          height: '44px',
-          borderRadius: '50%',
-          border: 'none',
-          background: disabled
-            ? '#e5e7eb'
-            : (isRecording ? '#ef4444' : '#f3f4f6'),
-          color: disabled
-            ? '#9ca3af'
-            : (isRecording ? 'white' : '#6b7280'),
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          opacity: disabled ? 0.6 : 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          transition: 'all 0.2s',
-          flexShrink: 0
-        }}
-      >
-        {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
-      </button>
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => { if (!disabled) toggleRecording(); }}
+              disabled={disabled}
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '50%',
+                border: 'none',
+                background: disabled
+                  ? '#e5e7eb'
+                  : (isRecording ? '#ef4444' : '#f3f4f6'),
+                color: disabled
+                  ? '#9ca3af'
+                  : (isRecording ? 'white' : '#6b7280'),
+                cursor: disabled ? 'not-allowed' : 'pointer',
+                opacity: disabled ? 0.6 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s',
+                flexShrink: 0
+              }}
+              title={isRecording ? 'Stop recording' : 'Start voice recording'}
+            >
+              {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+            </button>
+            {/* Recording Timer Badge */}
+            {isRecording && recordingSeconds > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: '-8px',
+                right: '-8px',
+                background: '#ef4444',
+                color: 'white',
+                borderRadius: '999px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                fontWeight: '600',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                minWidth: '20px',
+                textAlign: 'center'
+              }}>
+                {recordingSeconds}s
+              </span>
+            )}
+          </div>
           <div style={{
             flex: 1,
             position: 'relative'

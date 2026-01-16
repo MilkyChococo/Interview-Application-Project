@@ -317,7 +317,7 @@ const Home = () => {
                 gap: "8px",
               }}
             >
-              Start Interview
+              Practice
               <Mic size={20} />
             </button>
             {/* Nút mới Mock Interview */}

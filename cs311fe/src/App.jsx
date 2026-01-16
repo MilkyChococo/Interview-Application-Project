@@ -6,6 +6,7 @@ import Upload from "./pages/Upload";
 import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
 import Mock_Interview from "./pages/Mock_Interview";
+import EvaluationReport from "./pages/EvaluationReport";
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
             <Route path="/upload" element={<Upload />} />
             <Route path="/interview" element={<Interview />} />
             <Route path="/mock" element={<Mock_Interview />} />
+            <Route path="/evaluation-report" element={<EvaluationReport />} />
           </Routes>
         </main>
       </div>
