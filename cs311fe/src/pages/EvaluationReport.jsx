@@ -38,7 +38,7 @@ const EvaluationReport = () => {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`${API_URL}/chat/evaluation/${sessionId}`, {
+      const response = await fetch(`${API_URL}/chat/evaluation-data/${sessionId}`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -54,12 +54,54 @@ const EvaluationReport = () => {
       }
 
       const data = await response.json();
-      setReportData(data);
+      
+      // Transform data to match expected format
+      const transformedData = {
+        ...data,
+        summary: data.summary || "Interview evaluation completed.",
+        strengths: data.strengths || (data.questions && data.questions.length > 0 
+          ? Array.from(new Set(data.questions.flatMap(q => q.aiFeedback?.strengths || [])))
+          : []),
+        areasToImprove: data.areasToImprove || (data.questions && data.questions.length > 0
+          ? Array.from(new Set(data.questions.flatMap(q => q.aiFeedback?.improvements || [])))
+          : []),
+        categories: data.categories || [],
+        recommendations: data.recommendations || [],
+        questionsAsked: data.questions?.length || 0,
+        duration: data.duration || "N/A",
+      };
+      
+      setReportData(transformedData);
     } catch (err) {
       console.error("Error fetching evaluation:", err);
       setError(err.message);
       
       // For demo purposes, show mock data if API fails
+      const mockQuestions = [
+        {
+          id: 1,
+          question: "Can you tell me about yourself?",
+          userAnswer: "I am a software developer with 3 years of experience...",
+          aiFeedback: {
+            score: 80,
+            strengths: ["Clear communication", "Good structure"],
+            improvements: ["Could provide more specific examples"],
+            suggestion: "Good introduction. Consider adding more concrete achievements."
+          }
+        },
+        {
+          id: 2,
+          question: "What is your experience with React?",
+          userAnswer: "I have worked with React for 2 years...",
+          aiFeedback: {
+            score: 70,
+            strengths: ["Technical knowledge"],
+            improvements: ["Elaborate on specific projects", "Mention best practices"],
+            suggestion: "Good foundation. Try to provide more detailed project examples."
+          }
+        }
+      ];
+      
       setReportData({
         sessionId: sessionId,
         overallScore: 75,
@@ -85,7 +127,8 @@ const EvaluationReport = () => {
           "Review common technical concepts",
           "Prepare more concrete examples from past experiences",
         ],
-        questionsAsked: 8,
+        questions: mockQuestions,
+        questionsAsked: mockQuestions.length,
         duration: "32 minutes",
       });
     } finally {
@@ -442,6 +485,307 @@ const EvaluationReport = () => {
                 ))}
               </div>
             </div>
+
+            {/* Question-by-Question Results */}
+            {reportData.questions && reportData.questions.length > 0 && (
+              <div
+                style={{
+                  background: "white",
+                  borderRadius: "16px",
+                  padding: "32px",
+                  boxShadow: "0 4px 12px rgba(0, 0, 0, 0.05)",
+                  marginBottom: "24px",
+                }}
+              >
+                <h3
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: "600",
+                    color: "#111827",
+                    marginBottom: "24px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <MessageSquare size={20} />
+                  Question Details
+                </h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                  {reportData.questions.map((q, index) => (
+                    <div
+                      key={q.id || index}
+                      style={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: "12px",
+                        padding: "24px",
+                        background: "#f9fafb",
+                      }}
+                    >
+                      {/* Question Header */}
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          marginBottom: "16px",
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              marginBottom: "8px",
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: "28px",
+                                height: "28px",
+                                background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+                                color: "white",
+                                borderRadius: "50%",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "14px",
+                                fontWeight: "600",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {q.id || index + 1}
+                            </span>
+                            <h4
+                              style={{
+                                fontSize: "16px",
+                                fontWeight: "600",
+                                color: "#111827",
+                                margin: 0,
+                              }}
+                            >
+                              Question
+                            </h4>
+                          </div>
+                          <p
+                            style={{
+                              color: "#374151",
+                              lineHeight: "1.6",
+                              margin: "0 0 0 36px",
+                              fontSize: "15px",
+                            }}
+                          >
+                            {q.question}
+                          </p>
+                        </div>
+                        {/* Score Badge */}
+                        <div
+                          style={{
+                            padding: "8px 16px",
+                            background: getScoreColor(q.aiFeedback?.score || 0) + "15",
+                            borderRadius: "8px",
+                            border: `2px solid ${getScoreColor(q.aiFeedback?.score || 0)}`,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: "20px",
+                              fontWeight: "700",
+                              color: getScoreColor(q.aiFeedback?.score || 0),
+                            }}
+                          >
+                            {q.aiFeedback?.score || 0}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* User Answer */}
+                      <div style={{ marginBottom: "16px" }}>
+                        <h5
+                          style={{
+                            fontSize: "14px",
+                            fontWeight: "600",
+                            color: "#6b7280",
+                            marginBottom: "8px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                          }}
+                        >
+                          Your Answer
+                        </h5>
+                        <div
+                          style={{
+                            padding: "12px 16px",
+                            background: "white",
+                            borderRadius: "8px",
+                            border: "1px solid #e5e7eb",
+                          }}
+                        >
+                          <p
+                            style={{
+                              color: "#374151",
+                              lineHeight: "1.6",
+                              margin: 0,
+                              fontSize: "14px",
+                            }}
+                          >
+                            {q.userAnswer || "No answer provided"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Feedback Section */}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+                          gap: "16px",
+                        }}
+                      >
+                        {/* Strengths */}
+                        {q.aiFeedback?.strengths && q.aiFeedback.strengths.length > 0 && (
+                          <div>
+                            <h5
+                              style={{
+                                fontSize: "14px",
+                                fontWeight: "600",
+                                color: "#10b981",
+                                marginBottom: "8px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                              }}
+                            >
+                              <CheckCircle size={16} />
+                              Strengths
+                            </h5>
+                            <ul
+                              style={{
+                                margin: 0,
+                                paddingLeft: "20px",
+                                listStyle: "none",
+                              }}
+                            >
+                              {q.aiFeedback.strengths.map((strength, sIdx) => (
+                                <li
+                                  key={sIdx}
+                                  style={{
+                                    color: "#374151",
+                                    marginBottom: "6px",
+                                    lineHeight: "1.5",
+                                    fontSize: "13px",
+                                    position: "relative",
+                                    paddingLeft: "16px",
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      position: "absolute",
+                                      left: 0,
+                                      color: "#10b981",
+                                    }}
+                                  >
+                                    •
+                                  </span>
+                                  {strength}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Areas to Improve */}
+                        {q.aiFeedback?.improvements && q.aiFeedback.improvements.length > 0 && (
+                          <div>
+                            <h5
+                              style={{
+                                fontSize: "14px",
+                                fontWeight: "600",
+                                color: "#f59e0b",
+                                marginBottom: "8px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                              }}
+                            >
+                              <TrendingUp size={16} />
+                              Areas to Improve
+                            </h5>
+                            <ul
+                              style={{
+                                margin: 0,
+                                paddingLeft: "20px",
+                                listStyle: "none",
+                              }}
+                            >
+                              {q.aiFeedback.improvements.map((improvement, iIdx) => (
+                                <li
+                                  key={iIdx}
+                                  style={{
+                                    color: "#374151",
+                                    marginBottom: "6px",
+                                    lineHeight: "1.5",
+                                    fontSize: "13px",
+                                    position: "relative",
+                                    paddingLeft: "16px",
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      position: "absolute",
+                                      left: 0,
+                                      color: "#f59e0b",
+                                    }}
+                                  >
+                                    •
+                                  </span>
+                                  {improvement}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Suggestion/Comment */}
+                      {q.aiFeedback?.suggestion && (
+                        <div
+                          style={{
+                            marginTop: "16px",
+                            padding: "12px 16px",
+                            background: "#eff6ff",
+                            borderRadius: "8px",
+                            borderLeft: "4px solid #3b82f6",
+                          }}
+                        >
+                          <h5
+                            style={{
+                              fontSize: "13px",
+                              fontWeight: "600",
+                              color: "#1e40af",
+                              marginBottom: "6px",
+                            }}
+                          >
+                            Feedback
+                          </h5>
+                          <p
+                            style={{
+                              color: "#374151",
+                              lineHeight: "1.6",
+                              margin: 0,
+                              fontSize: "13px",
+                            }}
+                          >
+                            {q.aiFeedback.suggestion}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Strengths and Areas to Improve */}
             <div

@@ -14,7 +14,7 @@ const DEFAULT_BOT_MESSAGE = {
   id: 1,
   type: "bot",
   message:
-    "Hello! I'm your AI interviewer. I'll help you practice for your upcoming interview. Let's start with a simple question: Can you tell me about yourself?",
+    "Hi, Quy! What topics do you want to cover?",
   timestamp: new Date(),
 };
 
@@ -26,6 +26,7 @@ const Interview = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [chatPanelWidth, setChatPanelWidth] = useState(480);
   const isResizing = useRef(false);
+  const hasSpokenInitialMessage = useRef(false);
   const [sessionId, setSessionId] = useState(null);
   const location = useLocation();
 
@@ -86,10 +87,11 @@ const Interview = () => {
   }, [transcript]);
 
   useEffect(() => {
-    if (messages.length === 1 && messages[0].type === "bot") {
+    if (messages.length === 1 && messages[0].type === "bot" && !hasSpokenInitialMessage.current) {
       speak(messages[0].message);
+      hasSpokenInitialMessage.current = true;
     }
-  }, []);
+  }, [messages, speak]);
 
   // Load chat sessions from localStorage on mount
   useEffect(() => {
@@ -141,6 +143,7 @@ const Interview = () => {
     setMessages([{ ...DEFAULT_BOT_MESSAGE, timestamp: new Date() }]);
     setRemainingSeconds(45 * 60);
     setQuestionCount(1);
+    hasSpokenInitialMessage.current = false;
     localStorage.setItem("interview_session_id", newSessionId);
   }, []);
 
