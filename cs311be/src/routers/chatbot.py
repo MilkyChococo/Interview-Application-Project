@@ -679,12 +679,12 @@ async def get_final_report(session_id: str, service: Service = Depends(get_servi
         import re as _re
         for item in session.get("interactions", []) or []:
             evaluation_text = item.get("evaluation", "") or ""
-            # Try to extract score like: "Điểm: 8/10" or "Điểm: 8"
-            score_match = _re.search(r"(?i)điểm\s*:\s*(\d+(?:[\./]\d+)?)", evaluation_text)
-            score_val = score_match.group(1) if score_match else ""
-            # Try to extract improvement bullets after a line starting with "Cải thiện" or similar
+            # Try to extract score like: "Score: 8/10" or "Score: 8"
+            score_match = _re.search(r"(?i)score\s*:\s*(\d+(?:[\./]\d+)?)", evaluation_text)
+            score_val = score_match.group(1) if score_match else "0"
+            # Try to extract improvement bullets after a line starting with "Improvements" or similar
             improvements = []
-            improvements_block = _re.split(r"(?i)cải\s*thiện\s*:?", evaluation_text)
+            improvements_block = _re.split(r"(?i)improvements\s*:?", evaluation_text)
             if len(improvements_block) > 1:
                 # take after the keyword; split by lines starting with dash
                 tail = improvements_block[1]
@@ -703,19 +703,19 @@ async def get_final_report(session_id: str, service: Service = Depends(get_servi
         # Build overall section using LLM summarization over evaluations and answers
         llm = LLMEngine().openai_llm
         summary_prompt = (
-            "Bạn là chuyên gia tuyển dụng. Hãy tóm tắt tổng quan năng lực của ứng viên dựa trên các đánh giá sau (tiếng Việt, 4-6 câu).\n\n" +
+            "You are a recruitment expert. Please summarize the candidate's overall capabilities based on the following evaluations (in English, 4-6 sentences).\n\n" +
             "\n\n".join(f"- {i.get('evaluation','')}" for i in interactions if i.get('evaluation'))
         )
         strengths_prompt = (
-            "Từ các đánh giá sau, liệt kê 3-5 điểm mạnh ngắn gọn (gạch đầu dòng, tiếng Việt).\n\n" +
+            "From the following evaluations, list 3-5 strengths concisely (bullet points, in English).\n\n" +
             "\n\n".join(f"- {i.get('evaluation','')}" for i in interactions if i.get('evaluation'))
         )
         improvements_prompt = (
-            "Từ các đánh giá sau, liệt kê 3-5 điểm cần cải thiện ngắn gọn (gạch đầu dòng, tiếng Việt).\n\n" +
+            "From the following evaluations, list 3-5 areas for improvement concisely (bullet points, in English).\n\n" +
             "\n\n".join(f"- {i.get('evaluation','')}" for i in interactions if i.get('evaluation'))
         )
         fitness_prompt = (
-            "Dựa trên các đánh giá, viết 1-2 câu về mức độ phù hợp vị trí của ứng viên (tiếng Việt).\n\n" +
+            "Based on the evaluations, write 1-2 sentences about the candidate's suitability for the position (in English).\n\n" +
             "\n\n".join(f"- {i.get('evaluation','')}" for i in interactions if i.get('evaluation'))
         )
 
@@ -767,8 +767,8 @@ async def get_evaluation_data(session_id: str, service: Service = Depends(get_se
         import re as _re
         for item in session_interactions:
             evaluation_text = item.get("evaluation", "") or ""
-            # Try to extract score like: "Điểm: 8/10" or "Điểm: 8"
-            score_match = _re.search(r"(?i)điểm\s*:\s*(\d+(?:[\./]\d+)?)", evaluation_text)
+            # Try to extract score like: "Score: 8/10" or "Score: 8"
+            score_match = _re.search(r"(?i)score\s*:\s*(\d+(?:[\./]\d+)?)", evaluation_text)
             score_val = score_match.group(1) if score_match else "0"
             
             # Convert score to percentage (assuming 10-point scale)
@@ -784,7 +784,7 @@ async def get_evaluation_data(session_id: str, service: Service = Depends(get_se
             
             # Try to extract improvement bullets
             improvements = []
-            improvements_block = _re.split(r"(?i)cải\s*thiện\s*:?", evaluation_text)
+            improvements_block = _re.split(r"(?i)improvements\s*:?", evaluation_text)
             if len(improvements_block) > 1:
                 tail = improvements_block[1]
                 for line in tail.splitlines():
@@ -793,7 +793,7 @@ async def get_evaluation_data(session_id: str, service: Service = Depends(get_se
 
             # Extract strengths from evaluation text
             strengths = []
-            strengths_block = _re.split(r"(?i)điểm\s*mạnh\s*:?", evaluation_text)
+            strengths_block = _re.split(r"(?i)strengths\s*:?", evaluation_text)
             if len(strengths_block) > 1:
                 tail = strengths_block[1]
                 for line in tail.splitlines():

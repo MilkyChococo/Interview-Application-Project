@@ -46,7 +46,12 @@ class MockAgentService:
         self.sessions[session_id] = MockSession(session_id=session_id, cv_text=cv_text, jd_text=jd_text, role=role)
 
         role_name = self._role_from_jd(jd_text, role)
-        sys = "You are an adaptive interviewer. Ask one clear opening question ending with '?'."
+        sys = (            
+            "You are an adaptive interviewer. "
+            "Always ask questions ONLY in English, even if the CV, JD or user inputs are in Vietnamese "
+            "or any other language. "
+            "Ask one clear opening question ending with '?'."
+            )
         usr = f"Role: {role_name}\nCV:\n{cv_text[:4000]}\nJD:\n{jd_text[:4000]}"
         first_q = llm_chat(sys, usr).strip()
         if not first_q.endswith("?"):
@@ -64,13 +69,21 @@ class MockAgentService:
         else:
             s.turns.append(MockTurn(question=None, answer=user_answer))
 
-        sys_r = "Analyze the answer; return concise summary linked to JD/CV. Max 120 words."
+        sys_r = (            
+            "Analyze the answer and return a concise summary linked to JD/CV. "
+            "Respond in English only. Max 120 words."
+        )
         usr_r = f"JD:\n{s.jd_text[:3000]}\nCV:\n{s.cv_text[:3000]}\nAnswer:\n{user_answer}"
         reasoning = llm_chat(sys_r, usr_r).strip()
         s.turns[-1].summary = reasoning
 
         role_name = self._role_from_jd(s.jd_text, s.role)
-        sys_q = "Ask exactly one concise follow-up question ending with '?'."
+        sys_q = (
+            "You are an adaptive interviewer. "
+            "Always ask the next question ONLY in English, even if the user answers in Vietnamese "
+            "or any other language. "
+            "Ask exactly one concise follow-up question ending with '?'."
+        )
         usr_q = f"Role: {role_name}\nJD:\n{s.jd_text[:2500]}\nCV:\n{s.cv_text[:2500]}\nLast answer:\n{user_answer}"
         next_q = llm_chat(sys_q, usr_q).strip()
         if not next_q.endswith("?"):

@@ -86,16 +86,16 @@ class ChatbotTools:
                 return node
 
             prompt = f"""
-Bạn là chuyên gia phỏng vấn kỹ thuật. Hãy chỉnh sửa câu hỏi sau cho:
-- Rõ ràng, đi vào tình huống/thực hành thay vì hỏi định nghĩa
-- Phù hợp với kinh nghiệm ứng viên
-- Giữ đúng chủ đề gốc, không mở rộng quá mức
-- Ngắn gọn 1 câu, tiếng Việt
-Kinh nghiệm ứng viên:
+You are a technical interview expert. Please refine the following question to:
+- Be clear, focus on scenarios/practical situations rather than asking for definitions
+- Match the candidate's experience
+- Keep the original topic, don't expand too much
+- Be concise, one sentence, in English
+Candidate's experience:
 {user_project}
-Câu hỏi gốc:
+Original question:
 {original_text}
-Câu hỏi đã cải thiện:
+Refined question:
 """.strip()
 
             result = self.llm.complete(prompt=prompt)
@@ -118,11 +118,11 @@ Câu hỏi đã cải thiện:
             except Exception as inner_e:
                 from types import SimpleNamespace
                 new_node = SimpleNamespace(text=improved, metadata=dict(getattr(node, "metadata", {}) or {}))
-            print(f"Câu hỏi đã cải thiện: {getattr(new_node, 'text', '')}")
+            print(f"Refined question: {getattr(new_node, 'text', '')}")
             return new_node
         except Exception as e:
             # In case of any failure, return original node
-            print(f"Lỗi khi cải thiện câu hỏi: {e}")
+            print(f"Error refining question: {e}")
             return node
 
 
@@ -131,18 +131,18 @@ Câu hỏi đã cải thiện:
         if not nodes:
             return "No relevant information found in the QA."
         return "\n\n---\n\n".join(
-            f"Lĩnh vực: {node.metadata['source']} ID câu hỏi: {node.metadata['index']} Nội dung câu hỏi: {node.text}" for node in nodes
+            f"Domain: {node.metadata['source']} Question ID: {node.metadata['index']} Question content: {node.text}" for node in nodes
         )
     async def evaluate_user_answer(self, question: str, user_answer: str, source: str) -> str:
         """
-        Đánh giá câu trả lời của người dùng dựa trên đáp án mẫu trong metadata của câu hỏi.
+        Evaluate the user's answer based on the reference answer in the question's metadata.
 
         Args:
-            question: Câu hỏi phỏng vấn cần đánh giá.
-            user_answer: Câu trả lời của ứng viên.
+            question: The interview question to evaluate.
+            user_answer: The candidate's answer.
 
         Returns:
-            Văn bản phản hồi có cấu trúc gồm: điểm (0-10), nhận xét ngắn, và 3 gợi ý cải thiện.
+            Structured feedback text including: score (0-10), brief feedback, and 3 improvement suggestions.
         """
         # Lấy các node liên quan nhất từ cả hai bộ sưu tập
         # db = chromadb.PersistentClient(path=vectorstore_path)
@@ -157,7 +157,7 @@ Câu hỏi đã cải thiện:
         all_nodes.extend(qa_nodes)
     
         if not all_nodes:
-            return "Không tìm thấy câu hỏi phù hợp để đối chiếu đáp án. Vui lòng cung cấp rõ câu hỏi."
+            return "No matching question found to compare answers. Please provide a clear question."
 
         # Chọn node có điểm tương đồng cao nhất
         best_node = max(all_nodes, key=lambda n: (n.score or 0))
@@ -175,31 +175,37 @@ Câu hỏi đã cải thiện:
                 reference_answer = match.group(1).strip()
 
         if not reference_answer:
-            return "Không có đáp án mẫu trong dữ liệu cho câu hỏi này để đánh giá."
+            return "No reference answer found in the data for this question to evaluate."
 
         eval_prompt = f"""
-Bạn là chuyên gia phỏng vấn. Hãy chấm điểm và nhận xét câu trả lời của ứng viên.
-Câu hỏi: {question}
-Đáp án mẫu (ground-truth): {reference_answer}
-Câu trả lời của ứng viên: {user_answer}
-Yêu cầu:
-- Chấm điểm trên thang 0-10 (điểm số duy nhất).
-- Tham khảo đáp án mẫu và kiến thức chuyên môn để chấm, ứng viên có thể trả lời khác đáp án nhưng vẫn đúng thì đạt điểm cao.
-- Đánh giá dựa trên các tiêu chí: Tính phù hợp, Mức độ khó, Tính rõ ràng,...
-- Nêu gợi ý cải thiện cụ thể, hành động được.
-Định dạng trả về:
-Điểm: <số từ 0 đến 10> (Chỉ 1 giá trị nguyên, không có dấu phẩy, không hiển thị /10)
-Nhận xét: <đoạn ngắn> (Không nhận xét về câu trả lời mẫu VD Không được nhận xét như sau câu trả lời của ứng viên giống với đáp án mẫu)
-Cải thiện:
-- <gợi ý 1>
-- <gợi ý 2>
-- <gợi ý 3>
-ví dụ:
-Điểm: 8
-Nhận xét: Trả lời chính xác, đầy đủ, rõ ràng và phù hợp với câu hỏi tuy nhiên có thể cải thiện thêm bằng cách thêm ví dụ, chi tiết hơn.
-Cải thiện:
-- Làm thêm các bài tập về các khái niệm và thuật toán liên quan
-- Tìm hiểu thêm về các ứng dụng thực tế của các khái niệm và thuật toán liên quan
+You are an interview expert. Please score and provide feedback on the candidate's answer.
+Question: {question}
+Reference answer (ground-truth): {reference_answer}
+Candidate's answer: {user_answer}
+Requirements:
+- Score on a scale of 0-10 (single integer value only).
+- Refer to the reference answer and professional knowledge to score. Candidates may answer differently from the reference but still be correct and receive a high score.
+- Evaluate based on criteria: Relevance, Difficulty level, Clarity, etc.
+- Provide specific, actionable improvement suggestions.
+Output format:
+Score: <number from 0 to 10> (Only one integer value, no commas, do not display /10)
+Feedback: <short paragraph> (Do not comment on the reference answer. For example, do not say "the candidate's answer is similar to the reference answer")
+Strengths:
+- <strength 1>
+- <strength 2>
+Improvements:
+- <suggestion 1>
+- <suggestion 2>
+- <suggestion 3>
+Example:
+Score: 8
+Feedback: The answer is accurate, complete, clear, and relevant to the question. However, it could be improved by adding more examples and details.
+Strengths:
+- Good understanding of the core concepts
+- Clear communication style
+Improvements:
+- Practice more exercises related to the concepts and algorithms
+- Learn more about real-world applications of the concepts and algorithms
 """
         result = self.llm.complete(prompt=eval_prompt)
         return result.text.strip() if getattr(result, "text", None) else str(result) 
