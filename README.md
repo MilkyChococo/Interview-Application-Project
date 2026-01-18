@@ -150,10 +150,12 @@ Tạo file `cs311be/.env`:
 ## Định hướng phát triển trong tương lai
 
 - Ngân hàng câu hỏi theo ngành/vị trí/level.
-- Mô phỏng phỏng vấn theo kịch bản (session + timer + tổng kết).
-- Chấm điểm theo rubric (STAR method, clarity, completeness...).
 - Tối ưu tìm kiếm ngữ nghĩa (rerank, caching, chunking tốt hơn).
 - Docker hóa và triển khai CI/CD để deploy nhanh.
+- Multimodal AI: Phân tích Video để chấm điểm ngôn ngữ cơ thể.
+- AI Career Coach: Tư vấn lộ trình nghề nghiệp dài hạn.
+- Edge Computing: Chạy mô hình nhỏ (SLM) để giảm chi phí API.
+
 
 ---
 
