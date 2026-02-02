@@ -4,6 +4,9 @@ from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.llms import ChatMessage
 from src.schemas.chatbot import ResponseChat, ChatbotMessage, InputChatbotMessage
 from datetime import datetime
+from pathlib import Path
+import json
+import time
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from src.services.service import Service
 from src.routers.dependencies import get_service
@@ -33,6 +36,37 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN_LIMIT = int(os.getenv("TOKEN_LIMIT", 10000))
+
+def _safe_sid(session_id: str) -> str:
+    return "".join(ch for ch in (session_id or "") if ch.isalnum() or ch in ("-", "_"))
+
+def _append_inference_timing(session_id: str, module: str, elapsed_ms: float) -> None:
+    Path("exports").mkdir(exist_ok=True)
+    safe_sid = _safe_sid(session_id) or "unknown"
+    fp = Path("exports") / f"inference_{safe_sid}.json"
+
+    entry = {
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "module": module,
+        "elapsed_ms": round(float(elapsed_ms), 3),
+    }
+
+    data = {"session_id": session_id, "entries": [entry]}
+    if fp.exists():
+        try:
+            existing = json.loads(fp.read_text(encoding="utf-8"))
+            if isinstance(existing, dict):
+                entries = existing.get("entries")
+                if isinstance(entries, list):
+                    entries.append(entry)
+                    existing["entries"] = entries
+                    existing.setdefault("session_id", session_id)
+                    data = existing
+        except Exception:
+            # If parse fails, overwrite with fresh structure.
+            pass
+
+    fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def format_resume_data_for_agent(resume_data: dict) -> str:
     """Format resume data into readable text for agent to understand candidate background"""
@@ -566,6 +600,24 @@ async def chat_with_agent(
     # This ensures agent always has context available
     context_messages = []
     
+    # CRITICAL: Add session_id/room_id context FIRST so agent knows what session_id to use
+    context_messages.append(
+        ChatMessage(
+            role="system",
+            content=f"""[SESSION_CONTEXT]
+room_id = "{session_id}"
+session_id = "{session_id}"
+
+IMPORTANT: When calling ANY tool, you MUST use session_id="{session_id}" exactly as shown above.
+- For start_interview: use session_id="{session_id}"
+- For submit_interview_answer: use session_id="{session_id}" (THE SAME value!)
+- For get_interview_results: use session_id="{session_id}"
+
+DO NOT create a new session_id. DO NOT modify this value. Use it exactly as provided."""
+        )
+    )
+    print(f"[DEBUG] Added session_id context: {session_id}")
+    
     # Add CV information to memory
     if formatted_resume:
         context_messages.append(
@@ -591,14 +643,14 @@ async def chat_with_agent(
         context_messages.append(
             ChatMessage(
                 role="assistant",
-                content="I have received both the candidate's resume and job description. I will analyze them and automatically create a personalized interview plan based on the candidate's experience and the job requirements. When you're ready to start, I'll use the provided user_project and job_description in the start_interview tool."
+                content=f"I have received both the candidate's resume and job description. I will analyze them and create a personalized interview plan. The session_id for this interview is: {session_id}. When you say 'Start', I will call start_interview with session_id='{session_id}'."
             )
         )
     elif formatted_resume:
         context_messages.append(
             ChatMessage(
                 role="assistant",
-                content="I have received the candidate's resume. I will use this information to create an interview plan. If job description is needed, I will ask for it."
+                content=f"I have received the candidate's resume. The session_id is: {session_id}. I will use this information to create an interview plan."
             )
         )
     elif formatted_job:
@@ -627,10 +679,12 @@ async def chat_with_agent(
             is_outdomain=False
         )  
     else:
+        t0 = time.perf_counter()
         reply = await service.chatbot.handle_query(
             query=preprocessed_message,
             memory=memory
         )
+        _append_inference_timing(session_id, "chat_handle_query", (time.perf_counter() - t0) * 1000.0)
     #reply = await service.chatbot.handle_query(query=user_message, memory=memory)
 
     chat_message = ChatbotMessage(
@@ -661,12 +715,12 @@ async def get_final_report(session_id: str, service: Service = Depends(get_servi
         import re as _re
         for item in session.get("interactions", []) or []:
             evaluation_text = item.get("evaluation", "") or ""
-            # Try to extract score like: "Điểm: 8/10" or "Điểm: 8"
-            score_match = _re.search(r"(?i)điểm\s*:\s*(\d+(?:[\./]\d+)?)", evaluation_text)
-            score_val = score_match.group(1) if score_match else ""
-            # Try to extract improvement bullets after a line starting with "Cải thiện" or similar
+            # Try to extract score like: "Score: 8/10" or "Score: 8"
+            score_match = _re.search(r"(?i)score\s*:\s*(\d+(?:[\./]\d+)?)", evaluation_text)
+            score_val = score_match.group(1) if score_match else "0"
+            # Try to extract improvement bullets after a line starting with "Improvements" or similar
             improvements = []
-            improvements_block = _re.split(r"(?i)cải\s*thiện\s*:?", evaluation_text)
+            improvements_block = _re.split(r"(?i)improvements\s*:?", evaluation_text)
             if len(improvements_block) > 1:
                 # take after the keyword; split by lines starting with dash
                 tail = improvements_block[1]
@@ -685,19 +739,19 @@ async def get_final_report(session_id: str, service: Service = Depends(get_servi
         # Build overall section using LLM summarization over evaluations and answers
         llm = LLMEngine().openai_llm
         summary_prompt = (
-            "Bạn là chuyên gia tuyển dụng. Hãy tóm tắt tổng quan năng lực của ứng viên dựa trên các đánh giá sau (tiếng Việt, 4-6 câu).\n\n" +
+            "You are a recruitment expert. Please summarize the candidate's overall capabilities based on the following evaluations (in English, 4-6 sentences).\n\n" +
             "\n\n".join(f"- {i.get('evaluation','')}" for i in interactions if i.get('evaluation'))
         )
         strengths_prompt = (
-            "Từ các đánh giá sau, liệt kê 3-5 điểm mạnh ngắn gọn (gạch đầu dòng, tiếng Việt).\n\n" +
+            "From the following evaluations, list 3-5 strengths concisely (bullet points, in English).\n\n" +
             "\n\n".join(f"- {i.get('evaluation','')}" for i in interactions if i.get('evaluation'))
         )
         improvements_prompt = (
-            "Từ các đánh giá sau, liệt kê 3-5 điểm cần cải thiện ngắn gọn (gạch đầu dòng, tiếng Việt).\n\n" +
+            "From the following evaluations, list 3-5 areas for improvement concisely (bullet points, in English).\n\n" +
             "\n\n".join(f"- {i.get('evaluation','')}" for i in interactions if i.get('evaluation'))
         )
         fitness_prompt = (
-            "Dựa trên các đánh giá, viết 1-2 câu về mức độ phù hợp vị trí của ứng viên (tiếng Việt).\n\n" +
+            "Based on the evaluations, write 1-2 sentences about the candidate's suitability for the position (in English).\n\n" +
             "\n\n".join(f"- {i.get('evaluation','')}" for i in interactions if i.get('evaluation'))
         )
 
@@ -749,8 +803,8 @@ async def get_evaluation_data(session_id: str, service: Service = Depends(get_se
         import re as _re
         for item in session_interactions:
             evaluation_text = item.get("evaluation", "") or ""
-            # Try to extract score like: "Điểm: 8/10" or "Điểm: 8"
-            score_match = _re.search(r"(?i)điểm\s*:\s*(\d+(?:[\./]\d+)?)", evaluation_text)
+            # Try to extract score like: "Score: 8/10" or "Score: 8"
+            score_match = _re.search(r"(?i)score\s*:\s*(\d+(?:[\./]\d+)?)", evaluation_text)
             score_val = score_match.group(1) if score_match else "0"
             
             # Convert score to percentage (assuming 10-point scale)
@@ -766,7 +820,7 @@ async def get_evaluation_data(session_id: str, service: Service = Depends(get_se
             
             # Try to extract improvement bullets
             improvements = []
-            improvements_block = _re.split(r"(?i)cải\s*thiện\s*:?", evaluation_text)
+            improvements_block = _re.split(r"(?i)improvements\s*:?", evaluation_text)
             if len(improvements_block) > 1:
                 tail = improvements_block[1]
                 for line in tail.splitlines():
@@ -775,7 +829,7 @@ async def get_evaluation_data(session_id: str, service: Service = Depends(get_se
 
             # Extract strengths from evaluation text
             strengths = []
-            strengths_block = _re.split(r"(?i)điểm\s*mạnh\s*:?", evaluation_text)
+            strengths_block = _re.split(r"(?i)strengths\s*:?", evaluation_text)
             if len(strengths_block) > 1:
                 tail = strengths_block[1]
                 for line in tail.splitlines():
@@ -841,17 +895,21 @@ async def get_evaluation_data(session_id: str, service: Service = Depends(get_se
 async def transcribe_audio(
     file: UploadFile = File(...),
     language: str = Form("vi"),
+    session_id: str | None = Form(None),
 ):
     """Transcribe audio to text only - no chat processing"""
     try:
         client, model_name = create_openai_client_for_audio()
         audio_bytes = await file.read()
+        sid = session_id or "transcribe"
+        t0 = time.perf_counter()
         result = client.audio.transcriptions.create(
             model=model_name,
             file=(file.filename or "audio.webm", audio_bytes),
             language=language,
             response_format="text"
         )
+        _append_inference_timing(sid, "chat_transcribe_audio", (time.perf_counter() - t0) * 1000.0)
         return {"text": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
@@ -980,12 +1038,14 @@ async def voice_chat(
     try:
         client, model_name = create_openai_client_for_audio()
         audio_bytes = await file.read()
+        t0 = time.perf_counter()
         result = client.audio.transcriptions.create(
             model=model_name,
             file=(file.filename or "audio.webm", audio_bytes),
             language=language,
             response_format="text"
         )
+        _append_inference_timing(session_id, "chat_voice_transcribe", (time.perf_counter() - t0) * 1000.0)
         transcript_text = getattr(result, "text", "") or ""
         if not transcript_text:
             raise RuntimeError("Empty transcript returned")

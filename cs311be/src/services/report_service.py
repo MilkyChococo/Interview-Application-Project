@@ -64,10 +64,10 @@ def _build_html(results: Dict[str, Any]) -> str:
 
     html = f"""
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Báo cáo đánh giá phỏng vấn</title>
+  <title>Interview Evaluation Report</title>
   <style>
     body {{ 
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -178,29 +178,29 @@ def _build_html(results: Dict[str, Any]) -> str:
   </style>
   </head>
   <body>
-    <h1>ĐÁNH GIÁ CUỐI BUỔI</h1>
+    <h1>FINAL EVALUATION REPORT</h1>
 
     <div class="section">
-      <h2>I. Đánh giá tổng thể</h2>
+      <h2>I. Overall Assessment</h2>
       <p>{overall_summary}</p>
-      <p class="muted"><strong>Điểm mạnh:</strong></p>
+      <p class="muted"><strong>Strengths:</strong></p>
       <ul>{strengths_html}</ul>
-      <p class="muted" style="margin-top:8px"><strong>Điểm cần cải thiện:</strong></p>
+      <p class="muted" style="margin-top:8px"><strong>Areas for Improvement:</strong></p>
       <ul>{improvements_html}</ul>
-      <p class="muted" style="margin-top:8px"><strong>Mức độ phù hợp vị trí:</strong> {fitness}</p>
+      <p class="muted" style="margin-top:8px"><strong>Position Suitability:</strong> {fitness}</p>
     </div>
 
     <div class="section">
-      <h2>II. Đánh giá chi tiết từng câu hỏi</h2>
+      <h2>II. Detailed Question-by-Question Evaluation</h2>
       <table>
         <thead>
           <tr>
-            <th style='width:50px;text-align:center'>STT</th>
-            <th style='width:80px'>Câu hỏi</th>
-            <th style='width:150px'>Câu trả lời ứng viên</th>
-            <th style='width:300px'>Đánh giá</th>
-            <th style='width:200px'>Cải thiện</th>
-            <th style='width:50px;text-align:center'>Điểm số</th>
+            <th style='width:50px;text-align:center'>No.</th>
+            <th style='width:80px'>Question</th>
+            <th style='width:150px'>Candidate Answer</th>
+            <th style='width:300px'>Evaluation</th>
+            <th style='width:200px'>Improvements</th>
+            <th style='width:50px;text-align:center'>Score</th>
           </tr>
         </thead>
         <tbody>

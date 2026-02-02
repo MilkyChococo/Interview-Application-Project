@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import CharacterPanel from "../components/CharacterPanel";
@@ -107,105 +107,112 @@ const MockInterview = () => {
     setQuestionCount(1);
   }, [location.state, isAuthenticated, navigate]);
 
-  const { isRecording, transcript, startRecording, stopRecording, speak } =
+  const { isRecording, startRecording, stopRecording, speak } =
     useVoiceRecognition();
 
-  useEffect(() => {
-  const sid = sessionId || localStorage.getItem("interview_session_id");
-  if (!sid) return;
+  // Function to handle evaluation and end interview
+  const handleEvaluation = useCallback(async (reason = "time") => {
+    const sid = sessionId || localStorage.getItem("interview_session_id");
+    if (!sid || hasAutoSaved) return;
 
-  if (remainingSeconds === 0 && !hasAutoSaved) {
-    (async () => {
-      setHasAutoSaved(true);
-      setIsTimeUp(true);
+    setHasAutoSaved(true);
+    setIsTimeUp(true);
 
-      // 1) KHÓA INPUT + STOP RECORD
-      setPhase("saving");
-      if (isRecording) stopRecording();
+    // 1) LOCK INPUT + STOP RECORD
+    setPhase("saving");
+    if (isRecording) stopRecording();
 
-      // 2) THÔNG BÁO "ĐANG TỔNG KẾT"
+    // 2) NOTIFY "GENERATING SUMMARY"
+    const reasonMessage = reason === "questions" 
+      ? "You've completed 10 questions. I'm saving your transcript and generating the interview summary..."
+      : "Time's up. I'm saving your transcript and generating the interview summary...";
+    
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: prev.length + 1,
+        type: "bot",
+        message: reasonMessage,
+        timestamp: new Date(),
+      },
+    ]);
+
+    try {
+      // stop emotion logging (not critical if fails)
+      await fetch(`${API_URL}/emotion/stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sid }),
+      });
+    } catch (e) {
+      console.error("emotion stop error:", e);
+    }
+
+    try {
+      // 3) EVALUATING
+      setPhase("evaluating");
+
+      const res = await fetch(`${API_URL}/mock/export?session_id=${sid}`, {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`export failed: ${res.status} ${text}`);
+      }
+
+      const data = await res.json().catch(() => ({}));
+      console.log("AUTO EVAL:", data?.auto_eval);
+
+      // 4) NOTIFY "COMPLETE" BEFORE SHOWING RESULTS
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: prev.length + 1,
+          type: "bot",
+          message: "Summary complete. Here are your results.",
+          timestamp: new Date(),
+        },
+      ]);
+
+      setAutoEval(data?.auto_eval || null);
+
+      // 5) SHOW MODAL ONLY AFTER DATA IS READY
+      setShowEval(true);
+      setPhase("done");
+    } catch (err) {
+      console.error(err);
       setMessages((prev) => [
         ...prev,
         {
           id: prev.length + 1,
           type: "bot",
           message:
-            "Time's up. I'm saving your transcript and generating the interview summary...",
+            "I couldn't generate the summary due to an error. Please try again.",
           timestamp: new Date(),
         },
       ]);
-
-      // ❌ BỎ SPEAK để không nói nữa
-      // speak("Time's up! I'm saving your transcript now.");
-
-      try {
-        // stop emotion logging (không quan trọng nếu fail)
-        await fetch(`${API_URL}/emotion/stop`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sid }),
-        });
-      } catch (e) {
-        console.error("emotion stop error:", e);
-      }
-
-      try {
-        // 3) ĐANG CHẤM ĐIỂM
-        setPhase("evaluating");
-
-        const res = await fetch(`${API_URL}/mock/export?session_id=${sid}`, {
-          method: "POST",
-        });
-
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`export failed: ${res.status} ${text}`);
-        }
-
-        const data = await res.json().catch(() => ({}));
-        console.log("AUTO EVAL:", data?.auto_eval);
-
-        // 4) THÔNG BÁO "XONG RỒI" TRƯỚC KHI BẬT BẢNG
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: prev.length + 1,
-            type: "bot",
-            message: "Summary complete. Here are your results.",
-            timestamp: new Date(),
-          },
-        ]);
-
-        setAutoEval(data?.auto_eval || null);
-
-        // 5) CHỈ SHOW MODAL SAU KHI CÓ DATA
-        setShowEval(true);
-        setPhase("done");
-      } catch (err) {
-        console.error(err);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: prev.length + 1,
-            type: "bot",
-            message:
-              "I couldn't generate the summary due to an error. Please try again.",
-            timestamp: new Date(),
-          },
-        ]);
-        setPhase("done");
-      }
-    })();
-  }
-}, [remainingSeconds, hasAutoSaved, sessionId, isRecording, stopRecording]);
-
-
-  useEffect(() => {
-    if (phase !== "running") return; // ✅
-    if (transcript) {
-      sendMessage(transcript);
+      setPhase("done");
     }
-  }, [transcript]);
+  }, [sessionId, hasAutoSaved, isRecording, stopRecording]);
+
+  // Trigger evaluation when time is up
+  useEffect(() => {
+    const sid = sessionId || localStorage.getItem("interview_session_id");
+    if (!sid) return;
+
+    if (remainingSeconds === 0 && !hasAutoSaved && phase === "running") {
+      handleEvaluation("time");
+    }
+  }, [remainingSeconds, hasAutoSaved, sessionId, phase, handleEvaluation]);
+
+  // Trigger evaluation when 10 questions are reached
+  useEffect(() => {
+    if (questionCount >= 10 && !hasAutoSaved && phase === "running") {
+      handleEvaluation("questions");
+    }
+  }, [questionCount, hasAutoSaved, phase, handleEvaluation]);
+
 
   useEffect(() => {
     if (messages.length === 1 && messages[0].type === "bot") {
@@ -213,7 +220,7 @@ const MockInterview = () => {
     }
   }, [messages]);
 
-  const sendMessage = async (messageText = inputMessage) => {
+  const sendMessage = async (messageText = inputMessage, source = "text") => {
     if (phase !== "running") return;
     if (remainingSeconds <= 0 || isTimeUp) return;
     const text = messageText.trim();
@@ -224,6 +231,7 @@ const MockInterview = () => {
       id: messages.length + 1,
       type: "user",
       message: text,
+      source,
       timestamp: new Date(),
     };
 
@@ -238,6 +246,7 @@ const MockInterview = () => {
         body: JSON.stringify({
           session_id: sid,
           user_answer: text,
+          source,
         }),
       });
 
@@ -326,7 +335,10 @@ const MockInterview = () => {
   const toggleRecording = () => {
     if (phase !== "running") return;
     if (isRecording) {
-      stopRecording();
+      const voiceText = stopRecording();
+      if (voiceText && voiceText.trim()) {
+        sendMessage(voiceText, "voice");
+      }
     } else {
       startRecording();
     }

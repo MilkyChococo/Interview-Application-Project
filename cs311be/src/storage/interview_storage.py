@@ -23,6 +23,7 @@ class InterviewStorage:
         questions: List[Dict[str, Any]] = [],
         job_description: str = "",
         user_project: str = "",
+        plan: str = "",
     ) -> str:
         doc = {
             "session_id": session_id,
@@ -35,6 +36,7 @@ class InterviewStorage:
             "status": "in_progress",
             "job_description": job_description,
             "user_project": user_project,
+            "plan": plan,
             "content_type": None,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
@@ -55,7 +57,10 @@ class InterviewStorage:
         session_id: str,
         question: str,
         answer: str,
-        evaluation: str
+        evaluation: str,
+        contexts: Optional[List[str]] = None,
+        ground_truth: str = "",
+        question_original: str = "",
     ):
         update = {
             "$push": {
@@ -63,6 +68,9 @@ class InterviewStorage:
                     "question": question,
                     "answer": answer,
                     "evaluation": evaluation,
+                    "contexts": contexts or [],
+                    "ground_truth": ground_truth,
+                    "question_original": question_original,
                 }
             },
             "$set": {"updated_at": datetime.utcnow()},
