@@ -3,7 +3,9 @@ import { useState, useEffect, useRef } from 'react';
 const useVoiceRecognition = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [finalTranscript, setFinalTranscript] = useState('');
   const recognitionRef = useRef(null);
+  const finalTranscriptRef = useRef('');
 
   useEffect(() => {
     if (!('webkitSpeechRecognition' in window)) {
@@ -17,17 +19,29 @@ const useVoiceRecognition = () => {
     recognition.lang = 'en-US';
 
     recognition.onresult = (event) => {
-      let finalTranscript = '';
+      let interim = '';
+      let newlyFinal = '';
       for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const text = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
+          newlyFinal += text;
+        } else {
+          interim += text;
         }
       }
-      setTranscript(finalTranscript);
+      if (newlyFinal) {
+        finalTranscriptRef.current += newlyFinal;
+        setFinalTranscript(finalTranscriptRef.current);
+      }
+      const combined = `${finalTranscriptRef.current}${interim}`;
+      setTranscript(combined);
     };
     
     recognition.onerror = (event) => {
       console.error("Speech recognition error", event.error);
+    };
+    recognition.onend = () => {
+      setIsRecording(false);
     };
 
     recognitionRef.current = recognition;
@@ -35,6 +49,8 @@ const useVoiceRecognition = () => {
 
   const startRecording = () => {
     if (recognitionRef.current) {
+      finalTranscriptRef.current = '';
+      setFinalTranscript('');
       setTranscript('');
       recognitionRef.current.start();
       setIsRecording(true);
@@ -46,6 +62,11 @@ const useVoiceRecognition = () => {
       recognitionRef.current.stop();
       setIsRecording(false);
     }
+    const text = finalTranscriptRef.current;
+    finalTranscriptRef.current = '';
+    setFinalTranscript('');
+    setTranscript('');
+    return text;
   };
   
   const speak = (text) => {
@@ -58,7 +79,7 @@ const useVoiceRecognition = () => {
     }
   };
 
-  return { isRecording, transcript, startRecording, stopRecording, speak };
+  return { isRecording, transcript, finalTranscript, startRecording, stopRecording, speak };
 };
 
 export default useVoiceRecognition;

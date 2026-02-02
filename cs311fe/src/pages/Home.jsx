@@ -411,7 +411,7 @@ const Home = () => {
                   color: "#111827",
                 }}
               >
-                Voice Interview (Practice)
+                Practice
               </h3>
               <p style={{ color: "#6b7280", lineHeight: "1.6" }}>
                 Practice with natural voice conversations and get instant
