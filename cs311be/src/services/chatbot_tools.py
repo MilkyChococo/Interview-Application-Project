@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOP_K = int(os.getenv("TOP_K", "5"))  # Default to 5 if not set
+K_CANDIDATES = int(os.getenv("RAG_K_CANDIDATES", "20"))
+K_RERANK = int(os.getenv("RAG_K_RERANK", "5"))
 
 # Get vectorstore path from environment or use default
 vectorstore_path = "D:\CODE\DSC\dsc2025API\src\chroma_db_master_program"
@@ -53,14 +55,41 @@ class ChatbotTools:
         self.qa_retriever = self._initialize_qa_retriever()
         # self.evaluation = self._evaluation_question()
         self.interview_storage = InterviewStorage()
-    def _initialize_qa_retriever(self):
+
+    @staticmethod
+    def _extract_node_text(node: Any) -> str:
+        text = getattr(node, "text", None)
+        if not text and hasattr(node, "node"):
+            inner = getattr(node, "node", None)
+            text = getattr(inner, "text", None) if inner is not None else None
+        return text or ""
+
+    @staticmethod
+    def _extract_node_metadata(node: Any) -> Dict[str, Any]:
+        if hasattr(node, "node"):
+            inner = getattr(node, "node", None)
+            if inner is not None and hasattr(inner, "metadata"):
+                return dict(getattr(inner, "metadata", {}) or {})
+        return dict(getattr(node, "metadata", {}) or {})
+
+    @staticmethod
+    def _extract_reference_answer(text: str, metadata: Dict[str, Any]) -> str:
+        reference = metadata.get("answer") if metadata else None
+        if reference:
+            return reference
+        if text:
+            match = re.search(r"Answer\s*:\s*(.*)", text, re.IGNORECASE | re.DOTALL)
+            if match:
+                return match.group(1).strip()
+        return ""
+    def _initialize_qa_retriever(self, top_k: int = TOP_K):
         db = chromadb.PersistentClient(path=vectorstore_path)
         chroma_collection = db.get_or_create_collection("question_collection")
         total_count = chroma_collection.count()
         print(f"Total questions in 'question_collection': {total_count}")
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         index = VectorStoreIndex.from_vector_store(vector_store)
-        return VectorIndexRetriever(index=index, similarity_top_k=10)
+        return VectorIndexRetriever(index=index, similarity_top_k=top_k)
     
 
     def re_write_question(self, node, user_project: str):
@@ -75,11 +104,7 @@ class ChatbotTools:
         """
         try:
             # Extract original text from node in a defensive way
-            original_text = getattr(node, "text", None)
-            if not original_text and hasattr(node, "node"):
-                # LlamaIndex NodeWithScore case
-                inner = getattr(node, "node", None)
-                original_text = getattr(inner, "text", None) if inner is not None else None
+            original_text = self._extract_node_text(node)
 
             # Fallbacks
             if not original_text:
@@ -107,12 +132,9 @@ Refined question:
             try:
                 base = getattr(node, "node", None)
                 score = getattr(node, "score", None)
-                metadata = {}
-                if base is not None and hasattr(base, "metadata"):
-                    metadata = dict(getattr(base, "metadata", {}) or {})
-                else:
-                    metadata = dict(getattr(node, "metadata", {}) or {})
+                metadata = self._extract_node_metadata(node)
                 metadata["refined"] = True
+                metadata.setdefault("original_text", original_text)
                 new_text_node = TextNode(text=improved, metadata=metadata)
                 new_node = NodeWithScore(node=new_text_node, score=score)
             except Exception as inner_e:
@@ -124,6 +146,126 @@ Refined question:
             # In case of any failure, return original node
             print(f"Error refining question: {e}")
             return node
+
+    async def _llm_rerank_nodes(
+        self,
+        nodes: List[NodeWithScore],
+        user_project: str,
+        job_description: str,
+        top_k: int = K_RERANK,
+    ) -> List[NodeWithScore]:
+        """
+        Rerank candidate questions with LLM and return top_k nodes.
+        """
+        if not nodes:
+            return []
+        if len(nodes) <= top_k:
+            return nodes
+
+        questions_list = []
+        for i, node in enumerate(nodes):
+            question_text = self._extract_node_text(node)
+            if question_text:
+                questions_list.append(f"{i}: {question_text}")
+
+        prompt = f"""
+You are a technical interviewer. Select the top {top_k} most relevant questions
+for the candidate based on their CV and job description.
+
+Candidate CV/Experience:
+{user_project}
+
+Job Description:
+{job_description}
+
+Candidate Questions:
+{chr(10).join(questions_list)}
+
+Rules:
+- Prefer practical, scenario-based questions.
+- Avoid basic definition questions if possible.
+- Return ONLY a comma-separated list of indexes (e.g., "0,2,5,7,9").
+""".strip()
+
+        try:
+            response = await self.llm.acomplete(prompt=prompt)
+            raw = (response.text or "").strip()
+            picks = []
+            for part in raw.replace(" ", "").split(","):
+                if part.isdigit():
+                    idx = int(part)
+                    if 0 <= idx < len(nodes):
+                        picks.append(idx)
+            # De-duplicate while preserving order
+            seen = set()
+            picks = [i for i in picks if not (i in seen or seen.add(i))]
+            if picks:
+                return [nodes[i] for i in picks[:top_k]]
+        except Exception as e:
+            print(f"Error in LLM rerank: {e}")
+
+        # Fallback: use vector similarity scores
+        ranked = sorted(nodes, key=lambda n: (n.score or 0), reverse=True)
+        return ranked[:top_k]
+
+    async def _rewrite_question_with_context(
+        self,
+        question: str,
+        user_project: str,
+        job_description: str,
+    ) -> str:
+        """
+        Rewrite a question to be concise and tailored to CV + JD context.
+        """
+        if not question:
+            return question
+        prompt = f"""
+You are a technical interview expert. Rewrite the question to:
+- Be clear and scenario/practical oriented
+- Match the candidate's experience and the job requirements
+- Keep the original topic, do not expand scope
+- Be concise, one sentence, in English
+
+Candidate's experience:
+{user_project}
+
+Job description:
+{job_description}
+
+Original question:
+{question}
+
+Rewritten question:
+""".strip()
+        result = await self.llm.acomplete(prompt=prompt)
+        rewritten = result.text.strip() if getattr(result, "text", None) else str(result).strip()
+        return rewritten or question
+
+    async def _rewrite_nodes_with_context(
+        self,
+        nodes: List[NodeWithScore],
+        user_project: str,
+        job_description: str,
+    ) -> List[NodeWithScore]:
+        if not nodes:
+            return []
+        rewritten_nodes: List[NodeWithScore] = []
+        for node in nodes:
+            original_text = self._extract_node_text(node)
+            rewritten = await self._rewrite_question_with_context(original_text, user_project, job_description)
+            try:
+                base = getattr(node, "node", None)
+                score = getattr(node, "score", None)
+                metadata = self._extract_node_metadata(node)
+                metadata["refined"] = True
+                metadata.setdefault("original_text", original_text)
+                new_text_node = TextNode(text=rewritten, metadata=metadata)
+                new_node = NodeWithScore(node=new_text_node, score=score)
+            except Exception:
+                from types import SimpleNamespace
+                new_node = SimpleNamespace(text=rewritten, metadata=dict(getattr(node, "metadata", {}) or {}))
+            rewritten_nodes.append(new_node)
+        return rewritten_nodes
 
 
     async def qa_information(self, query: str) -> str:
@@ -263,8 +405,8 @@ Improvements:
                 deduped.append(kw)
         return deduped
 
-    def _get_retriever_by_source(self) -> VectorIndexRetriever:
-        self.qa_retriever = self._initialize_qa_retriever()
+    def _get_retriever_by_source(self, top_k: int = TOP_K) -> VectorIndexRetriever:
+        self.qa_retriever = self._initialize_qa_retriever(top_k=top_k)
         return self.qa_retriever
     async def re_rank_nodes(self, nodes: List[NodeWithScore], user_project: str, job_description: str, collected: Dict[str, Dict[str, Any]]) -> NodeWithScore:
         """
@@ -287,7 +429,7 @@ Improvements:
         # Tạo danh sách câu hỏi để LLM dễ đọc
         questions_list = []
         for i, node in enumerate(nodes):
-            question_text = getattr(node, 'text', '')
+            question_text = self._extract_node_text(node)
             questions_list.append(f"{i}: {question_text}")
         collected_text = ""
         questions_text = "\n".join(questions_list)
@@ -342,40 +484,72 @@ Improvements:
 
 
     async def start_interview(self, plan: str, source: str, session_id: str, user_project: str, job_description: str, number: str, user_id: str = "") -> Dict[str, Any]:
-        keywords = await self._generate_keywords(plan, user_project, job_description, number)
-        retriever = self._get_retriever_by_source()
+        try:
+            target_n = max(1, int(str(number).strip()))
+        except Exception:
+            target_n = max(1, int(TOP_K))
+
+        keywords = await self._generate_keywords(plan, user_project, job_description, str(target_n))
+        if len(keywords) > target_n:
+            keywords = keywords[:target_n]
+        retriever = self._get_retriever_by_source(top_k=K_CANDIDATES)
         collected: Dict[str, Dict[str, Any]] = {}
         print(f"Generated {len(keywords)} keywords: {keywords}")
         for i, kw in enumerate(keywords):
             try:
                 result = await retriever.aretrieve(kw)
-                #xử lí list câu hỏi để chọn câu phù hợp với CV và JD nhất
+                # vector search candidates
                 nodes = result if isinstance(result, list) else [result] if result else []
+                contexts = [self._extract_node_text(n) for n in nodes if self._extract_node_text(n)]
                 if nodes:
-                    #chọn câu hỏi phù hợp với CV và JD nhất
-                    selected_node = await self.re_rank_nodes(nodes, user_project, job_description, collected)
-                    if selected_node:
-                        nodes = [selected_node]  # Convert single node back to list for processing
+                    # LLM rerank to top K
+                    ranked_nodes = await self._llm_rerank_nodes(nodes, user_project, job_description, top_k=K_RERANK)
+                    # Only rewrite 1 best question per keyword
+                    best_node = ranked_nodes[0] if ranked_nodes else None
+                    if best_node:
+                        nodes = await self._rewrite_nodes_with_context([best_node], user_project, job_description)
                     else:
                         nodes = []
+                else:
+                    nodes = []
             except Exception as e:
                 print(f"Error retrieving for keyword '{kw}': {e}")
                 nodes = []
+                contexts = []
                 
             for node in nodes:
                 if not node:
                     continue
                 # Defensive checks in case of unexpected shapes
-                node_text = getattr(node, "text", None)
+                node_text = self._extract_node_text(node)
                 if not node_text:
                     continue
                 text_key = node_text.strip()
-                if not text_key or text_key in collected:
+                if not text_key:
                     continue
+                if text_key in collected:
+                    # allow duplicates if needed to reach target_n
+                    suffix = 2
+                    new_key = f"{text_key} ({suffix})"
+                    while new_key in collected:
+                        suffix += 1
+                        new_key = f"{text_key} ({suffix})"
+                    text_key = new_key
+                metadata = self._extract_node_metadata(node)
+                original_text = metadata.get("original_text") or node_text
+                ground_truth = self._extract_reference_answer(original_text, metadata)
                 collected[text_key] = {
                     "text": node_text,
-                    "metadata": dict(getattr(node, "metadata", {}) or {}),
+                    "metadata": metadata,
+                    "contexts": contexts,
+                    "ground_truth": ground_truth,
+                    "original_text": original_text,
+                    "keyword": kw,
                 }
+                if len(collected) >= target_n:
+                    break
+            if len(collected) >= target_n:
+                break
 
         questions = list(collected.values())
         if not questions:
@@ -388,7 +562,8 @@ Improvements:
             keywords=keywords,
             questions=questions,
             job_description=job_description,
-            user_project=user_project
+            user_project=user_project,
+            plan=plan,
         )
 
         return {
@@ -411,6 +586,12 @@ Improvements:
             return {"message": "Đã hết câu hỏi", "done": True}
         qobj = questions[idx]
         question_text: str = qobj.get("text", "")
+        contexts = qobj.get("contexts", []) or []
+        ground_truth = qobj.get("ground_truth", "")
+        if not ground_truth:
+            metadata = qobj.get("metadata", {}) or {}
+            original_text = qobj.get("original_text") or question_text
+            ground_truth = self._extract_reference_answer(original_text, metadata)
         # Use the source parameter passed in, fallback to session source if needed
         session_source = session.get("source", "Software_QA")
         source_to_use = source if source else session_source
@@ -422,6 +603,9 @@ Improvements:
             question=question_text,
             answer=user_answer,
             evaluation=evaluation,
+            contexts=contexts,
+            ground_truth=ground_truth,
+            question_original=qobj.get("original_text", ""),
         )
         self.interview_storage.update_session(session_id, {"current_index": idx + 1})
 

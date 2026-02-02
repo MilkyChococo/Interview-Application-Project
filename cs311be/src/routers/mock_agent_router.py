@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Any
 from datetime import datetime
 import json  # NEW
+import time
 
 from src.schemas.mock_agent import StartMockRequest, StartMockResponse, MockTurnRequest, MockTurnResponse
 from src.services.mock_agent_service import MockAgentService
@@ -131,6 +132,34 @@ def _safe_sid(session_id: str) -> str:
     return "".join(ch for ch in (session_id or "") if ch.isalnum() or ch in ("-", "_"))
 
 
+def _append_inference_timing(session_id: str, module: str, elapsed_ms: float) -> None:
+    Path("exports").mkdir(exist_ok=True)
+    safe_sid = _safe_sid(session_id) or "unknown"
+    fp = Path("exports") / f"inference_{safe_sid}.json"
+
+    entry = {
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "module": module,
+        "elapsed_ms": round(float(elapsed_ms), 3),
+    }
+
+    data = {"session_id": session_id, "entries": [entry]}
+    if fp.exists():
+        try:
+            existing = json.loads(fp.read_text(encoding="utf-8"))
+            if isinstance(existing, dict):
+                entries = existing.get("entries")
+                if isinstance(entries, list):
+                    entries.append(entry)
+                    existing["entries"] = entries
+                    existing.setdefault("session_id", session_id)
+                    data = existing
+        except Exception:
+            # If parse fails, overwrite with fresh structure.
+            pass
+
+    fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
 def _normalize_role_text(jd_text: Any) -> str:
     # 1) nếu đã là string
     if isinstance(jd_text, str):
@@ -176,8 +205,18 @@ def start_mock(payload: StartMockRequest):
 
         # NEW: nếu payload.role rỗng -> dùng luôn jd_text làm role
         role_text = (payload.role or "").strip() or _normalize_role_text(payload.jd_text)
-        first_q = _service.start_session(payload.session_id, payload.cv_text, payload.jd_text, role_text)
-        return StartMockResponse(session_id=payload.session_id, first_question=first_q)
+        t0 = time.perf_counter()
+        result = _service.start_session(payload.session_id, payload.cv_text, payload.jd_text, role_text)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        _append_inference_timing(payload.session_id, "mock_start_session", elapsed_ms)
+        first_q = result.get("first_question") if isinstance(result, dict) else result
+        timings = (result.get("timings") if isinstance(result, dict) else {}) or {}
+        timings["api_ms"] = round(float(elapsed_ms), 3)
+        return StartMockResponse(
+            session_id=payload.session_id,
+            first_question=first_q,
+            timings=timings,
+        )
     except HTTPException as he:
         raise he
     except Exception as e:
@@ -188,13 +227,19 @@ def start_mock(payload: StartMockRequest):
 @router.post("/turn", response_model=MockTurnResponse)
 def mock_turn(payload: MockTurnRequest):
     try:
-        data = _service.process_turn(payload.session_id, payload.user_answer)
+        t0 = time.perf_counter()
+        data = _service.process_turn(payload.session_id, payload.user_answer, payload.source)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        _append_inference_timing(payload.session_id, "mock_process_turn", elapsed_ms)
+        timings = (data.get("timings") if isinstance(data, dict) else {}) or {}
+        timings["api_ms"] = round(float(elapsed_ms), 3)
         return MockTurnResponse(
             session_id=payload.session_id,
             timestamp=datetime.utcnow(),
             reasoning_summary=data["reasoning_summary"],
             next_question=data["next_question"],
             followups=data.get("followups", []),
+            timings=timings,
         )
     except HTTPException as he:
         raise he
@@ -206,10 +251,13 @@ def mock_turn(payload: MockTurnRequest):
 @router.post("/export")
 def export_mock(session_id: str):
     try:
+        t0 = time.perf_counter()
         path = _service.export_transcript_txt(session_id)
+        _append_inference_timing(session_id, "mock_export_transcript", (time.perf_counter() - t0) * 1000.0)
 
         role_text = _load_role_text(session_id)
 
+        t1 = time.perf_counter()
         report = _eval_service.evaluate(
             session_id=session_id,
             role=role_text or None,
@@ -219,6 +267,7 @@ def export_mock(session_id: str):
             w_agent_final=0.65,
             w_emotion=0.35,
         )
+        _append_inference_timing(session_id, "mock_evaluate_report", (time.perf_counter() - t1) * 1000.0)
         overall = report.get("overall", {})
         auto_eval = dict(overall)
 

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 class StartMockRequest(BaseModel):
@@ -11,10 +11,12 @@ class StartMockRequest(BaseModel):
 class StartMockResponse(BaseModel):
     session_id: str
     first_question: str
+    timings: Optional[Dict[str, float]] = None
 
 class MockTurnRequest(BaseModel):
     session_id: str
     user_answer: str
+    source: Optional[str] = None
 
 class MockTurnResponse(BaseModel):
     session_id: str
@@ -22,3 +24,4 @@ class MockTurnResponse(BaseModel):
     reasoning_summary: str
     next_question: str
     followups: List[str] = []
+    timings: Optional[Dict[str, float]] = None

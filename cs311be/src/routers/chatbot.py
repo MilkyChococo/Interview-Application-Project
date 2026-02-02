@@ -4,6 +4,9 @@ from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.llms import ChatMessage
 from src.schemas.chatbot import ResponseChat, ChatbotMessage, InputChatbotMessage
 from datetime import datetime
+from pathlib import Path
+import json
+import time
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from src.services.service import Service
 from src.routers.dependencies import get_service
@@ -33,6 +36,37 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN_LIMIT = int(os.getenv("TOKEN_LIMIT", 10000))
+
+def _safe_sid(session_id: str) -> str:
+    return "".join(ch for ch in (session_id or "") if ch.isalnum() or ch in ("-", "_"))
+
+def _append_inference_timing(session_id: str, module: str, elapsed_ms: float) -> None:
+    Path("exports").mkdir(exist_ok=True)
+    safe_sid = _safe_sid(session_id) or "unknown"
+    fp = Path("exports") / f"inference_{safe_sid}.json"
+
+    entry = {
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "module": module,
+        "elapsed_ms": round(float(elapsed_ms), 3),
+    }
+
+    data = {"session_id": session_id, "entries": [entry]}
+    if fp.exists():
+        try:
+            existing = json.loads(fp.read_text(encoding="utf-8"))
+            if isinstance(existing, dict):
+                entries = existing.get("entries")
+                if isinstance(entries, list):
+                    entries.append(entry)
+                    existing["entries"] = entries
+                    existing.setdefault("session_id", session_id)
+                    data = existing
+        except Exception:
+            # If parse fails, overwrite with fresh structure.
+            pass
+
+    fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def format_resume_data_for_agent(resume_data: dict) -> str:
     """Format resume data into readable text for agent to understand candidate background"""
@@ -645,10 +679,12 @@ DO NOT create a new session_id. DO NOT modify this value. Use it exactly as prov
             is_outdomain=False
         )  
     else:
+        t0 = time.perf_counter()
         reply = await service.chatbot.handle_query(
             query=preprocessed_message,
             memory=memory
         )
+        _append_inference_timing(session_id, "chat_handle_query", (time.perf_counter() - t0) * 1000.0)
     #reply = await service.chatbot.handle_query(query=user_message, memory=memory)
 
     chat_message = ChatbotMessage(
@@ -859,17 +895,21 @@ async def get_evaluation_data(session_id: str, service: Service = Depends(get_se
 async def transcribe_audio(
     file: UploadFile = File(...),
     language: str = Form("vi"),
+    session_id: str | None = Form(None),
 ):
     """Transcribe audio to text only - no chat processing"""
     try:
         client, model_name = create_openai_client_for_audio()
         audio_bytes = await file.read()
+        sid = session_id or "transcribe"
+        t0 = time.perf_counter()
         result = client.audio.transcriptions.create(
             model=model_name,
             file=(file.filename or "audio.webm", audio_bytes),
             language=language,
             response_format="text"
         )
+        _append_inference_timing(sid, "chat_transcribe_audio", (time.perf_counter() - t0) * 1000.0)
         return {"text": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
@@ -998,12 +1038,14 @@ async def voice_chat(
     try:
         client, model_name = create_openai_client_for_audio()
         audio_bytes = await file.read()
+        t0 = time.perf_counter()
         result = client.audio.transcriptions.create(
             model=model_name,
             file=(file.filename or "audio.webm", audio_bytes),
             language=language,
             response_format="text"
         )
+        _append_inference_timing(session_id, "chat_voice_transcribe", (time.perf_counter() - t0) * 1000.0)
         transcript_text = getattr(result, "text", "") or ""
         if not transcript_text:
             raise RuntimeError("Empty transcript returned")

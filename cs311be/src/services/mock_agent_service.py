@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from datetime import datetime
 import re
+import time
 from fastapi import HTTPException
 from src.engines.llm_engine import get_llm_engine
 from pathlib import Path
@@ -18,6 +19,7 @@ def llm_chat(system: str, user: str) -> str:
 class MockTurn:
     question: Optional[str]
     answer: Optional[str]
+    source: Optional[str] = None
     time: datetime = field(default_factory=datetime.utcnow)
     summary: Optional[str] = None
 
@@ -33,13 +35,19 @@ class MockAgentService:
     def __init__(self) -> None:
         self.sessions: Dict[str, MockSession] = {}
 
+    def _time_call(self, fn, *args, **kwargs):
+        t0 = time.perf_counter()
+        result = fn(*args, **kwargs)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        return result, elapsed_ms
+
     def _role_from_jd(self, jd_text: str, fallback: Optional[str]) -> str:
         if fallback:
             return fallback
         m = re.search(r"(Senior|Junior|Lead)?\s*([A-Za-z ]+(Engineer|Developer|Scientist|Manager))", jd_text, re.I)
         return m.group(0).strip() if m else "the position"
 
-    def start_session(self, session_id: str, cv_text: str, jd_text: str, role: Optional[str]) -> str:
+    def start_session(self, session_id: str, cv_text: str, jd_text: str, role: Optional[str]) -> Dict:
         if not cv_text or not jd_text:
             print(f"[mock/start] Missing text. cv_len={len(cv_text or '')}, jd_len={len(jd_text or '')}")
             raise HTTPException(status_code=400, detail="cv_text and jd_text are required")
@@ -53,28 +61,36 @@ class MockAgentService:
             "Ask one clear opening question ending with '?'."
             )
         usr = f"Role: {role_name}\nCV:\n{cv_text[:4000]}\nJD:\n{jd_text[:4000]}"
-        first_q = llm_chat(sys, usr).strip()
+        first_q, llm_ms = self._time_call(llm_chat, sys, usr)
+        first_q = first_q.strip()
         if not first_q.endswith("?"):
             first_q = first_q.rstrip(".") + "?"
         self.sessions[session_id].turns.append(MockTurn(question=first_q, answer=None))
-        return first_q
+        return {
+            "first_question": first_q,
+            "timings": {"llm_ms": round(float(llm_ms), 3)},
+        }
 
-    def process_turn(self, session_id: str, user_answer: str) -> Dict:
+    def process_turn(self, session_id: str, user_answer: str, source: Optional[str] = None) -> Dict:
         if session_id not in self.sessions:
             raise HTTPException(status_code=400, detail="Invalid session_id. Call /mock/start first.")
+        t_total = time.perf_counter()
         s = self.sessions[session_id]
 
+        answer_source = (source or "text").strip().lower()
         if s.turns and s.turns[-1].answer is None:
             s.turns[-1].answer = user_answer
+            s.turns[-1].source = answer_source
         else:
-            s.turns.append(MockTurn(question=None, answer=user_answer))
+            s.turns.append(MockTurn(question=None, answer=user_answer, source=answer_source))
 
         sys_r = (            
             "Analyze the answer and return a concise summary linked to JD/CV. "
             "Respond in English only. Max 120 words."
         )
         usr_r = f"JD:\n{s.jd_text[:3000]}\nCV:\n{s.cv_text[:3000]}\nAnswer:\n{user_answer}"
-        reasoning = llm_chat(sys_r, usr_r).strip()
+        reasoning, reasoning_ms = self._time_call(llm_chat, sys_r, usr_r)
+        reasoning = reasoning.strip()
         s.turns[-1].summary = reasoning
 
         role_name = self._role_from_jd(s.jd_text, s.role)
@@ -85,11 +101,22 @@ class MockAgentService:
             "Ask exactly one concise follow-up question ending with '?'."
         )
         usr_q = f"Role: {role_name}\nJD:\n{s.jd_text[:2500]}\nCV:\n{s.cv_text[:2500]}\nLast answer:\n{user_answer}"
-        next_q = llm_chat(sys_q, usr_q).strip()
+        next_q, next_ms = self._time_call(llm_chat, sys_q, usr_q)
+        next_q = next_q.strip()
         if not next_q.endswith("?"):
             next_q = next_q.rstrip(".") + "?"
         s.turns.append(MockTurn(question=next_q, answer=None))
-        return {"reasoning_summary": reasoning, "next_question": next_q, "followups": []}
+        timings = {
+            "reasoning_ms": round(float(reasoning_ms), 3),
+            "next_question_ms": round(float(next_ms), 3),
+            "total_ms": round((time.perf_counter() - t_total) * 1000.0, 3),
+        }
+        return {
+            "reasoning_summary": reasoning,
+            "next_question": next_q,
+            "followups": [],
+            "timings": timings,
+        }
     def export_transcript_txt(self, session_id: str, out_dir: str = "exports") -> str:
         if session_id not in self.sessions:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -119,7 +146,8 @@ class MockAgentService:
                 lines.append("")
 
             if t.answer:
-                lines.append(f"[A{q_idx}] ({t.time.isoformat()}Z)")
+                source_note = f", source={t.source}" if t.source else ""
+                lines.append(f"[A{q_idx}] ({t.time.isoformat()}Z{source_note})")
                 lines.append(t.answer)
                 lines.append("")
 
